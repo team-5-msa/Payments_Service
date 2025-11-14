@@ -1,113 +1,153 @@
 const bookingRepository = require("./booking.repository");
-const seatService = require("../seat/seat.service");
 const paymentService = require("../payment/payment.service");
 
-// 고정된 좌석 가격 (실제로는 공연 정보에서 좌석 등급별 가격을 조회해야 함)
-const MOCK_SEAT_PRICE = 30000;
-const MOCK_SEAT_TYPE = "VIP";
+// [Mock] 가상의 Performances_Service와 통신하는 모듈
+// 실제 MSA 통신 모듈이 구현되면 이 부분을 교체합니다.
+const performanceService = {
+  /**
+   * [Mock] 수량 기반 좌석 잠금 요청을 시뮬레이션합니다.
+   * @returns {Promise<{seatIds: string[], pricePerSeat: number}>} 할당된 좌석 ID 목록과 좌석당 가격
+   */
+  lockSeatsByQuantity: async (performanceId, quantity) => {
+    console.log(
+      `[Mock Performance Service] Locking ${quantity} seats for performance ${performanceId}...`
+    );
 
-const createBooking = async (userId, performanceId, seatIds, paymentMethod) => {
-  if (!userId || !performanceId || !seatIds || seatIds.length === 0) {
-    const error = new Error("User, performance, and seats are required.");
+    // --- 성공 시나리오 ---
+    // 가상의 좌석 ID를 생성합니다 (예: A1, A2, ...)
+    const seatIds = Array.from({ length: quantity }, (_, i) => `A${i + 1}`);
+    const pricePerSeat = 30000; // 고정된 모의 가격
+
+    console.log(
+      `[Mock Performance Service] Locked seats: ${seatIds.join(
+        ", "
+      )} with price ${pricePerSeat}`
+    );
+
+    // 실제 서비스가 반환할 것으로 예상되는 객체
+    return Promise.resolve({
+      seatIds,
+      pricePerSeat,
+    });
+
+    // --- 실패 시나리오 테스트를 원할 경우 아래 코드를 사용 ---
+    // return Promise.reject(new Error("Not enough available seats."));
+  },
+
+  /**
+   * [Mock] 좌석 잠금 해제 요청을 시뮬레이션합니다.
+   */
+  unlockSeats: async (performanceId, seatIds) => {
+    console.log(
+      `[Mock Performance Service] Unlocking seats ${seatIds.join(
+        ", "
+      )} for performance ${performanceId}.`
+    );
+    return Promise.resolve(); // 성공적으로 완료되었음을 나타냄
+  },
+
+  /**
+   * [Mock] 좌석 상태를 'booked'로 최종 확정하는 요청을 시뮬레이션합니다.
+   */
+  confirmSeatsAsBooked: async (performanceId, seatIds) => {
+    console.log(
+      `[Mock Performance Service] Confirming seats ${seatIds.join(
+        ", "
+      )} as 'booked' for performance ${performanceId}.`
+    );
+    return Promise.resolve(); // 성공적으로 완료되었음을 나타냄
+  },
+};
+
+/**
+ * 1. 예매 생성 및 결제 의향 생성 (수량 기반)
+ */
+const createBooking = async (
+  userId,
+  performanceId,
+  quantity,
+  paymentMethod
+) => {
+  if (!userId || !performanceId || !quantity || quantity <= 0) {
+    const error = new Error("User, performance, and quantity are required.");
     error.status = 400;
     throw error;
   }
 
-  // (수정) 레포지토리에 전달할 좌석 상세 정보와 총액을 동적으로 생성
-  const seatDetails = seatIds.map((id) => ({
-    id,
-    price: MOCK_SEAT_PRICE,
-    type: MOCK_SEAT_TYPE,
-  }));
-  const totalAmount = seatDetails.reduce((sum, seat) => sum + seat.price, 0);
+  // --- MSA 통신 1: Performances_Service에 좌석 할당 및 가격 정보 요청 ---
+  let allocatedSeats;
+  try {
+    // [수정] 이제 이 함수는 위에서 정의한 Mock 객체를 호출합니다.
+    allocatedSeats = await performanceService.lockSeatsByQuantity(
+      performanceId,
+      quantity
+    );
+  } catch (error) {
+    const serviceError = new Error(
+      `Performance Service is unavailable: ${error.message}`
+    );
+    serviceError.status = 503;
+    throw serviceError;
+  }
 
-  const bookingData = {
+  const { seatIds, pricePerSeat } = allocatedSeats;
+  const totalAmount = pricePerSeat * quantity;
+
+  // 1. 예매 문서 생성 (DB 저장)
+  const bookingId = await bookingRepository.createBooking({
     userId,
     performanceId,
-    seatIds, // seat.repository에서 사용할 좌석 ID 목록
-    seatDetails, // booking.repository에서 서브컬렉션 생성에 사용
-  };
-
-  // 1. 좌석 잠금 및 예매 문서 생성 (트랜잭션)
-  // bookingId는 이 단계에서 생성됨
-  const bookingId = await bookingRepository.createBookingWithSeatLock(
-    bookingData
-  );
+    seatIds, // Performances_Service로부터 할당받은 좌석 ID 목록
+    quantity,
+  });
 
   try {
-    // 2. 결제 서비스에 결제 의향(Intent) 생성 요청
-    // (수정) 명세서에 맞게 userId와 paymentMethod 추가 전달
-    const paymentIntentId = await paymentService.createPaymentIntent(
+    // 2. 결제 의향 생성 (payment.service 호출)
+    await paymentService.createPaymentIntent(
       bookingId,
       userId,
       totalAmount,
       paymentMethod
     );
-
-    // 성공 시 bookingId와 paymentIntentId 반환
-    return { bookingId, paymentIntentId, totalAmount };
+    // 3. 클라이언트에게 bookingId 반환
+    return { bookingId, totalAmount };
   } catch (error) {
-    // 결제 의향 생성 실패 시, 잠갔던 좌석을 즉시 해제 (보상 트랜잭션)
+    // --- 보상 트랜잭션: 결제 의향 생성 실패 시 Performances_Service에 좌석 잠금 해제 요청 ---
     console.error(
-      `[Booking Rollback] Failed to create payment intent for booking ${bookingId}. Releasing seats.`
+      `[Booking Rollback] For booking ${bookingId}, releasing seats.`
     );
-    await seatService.releaseSeats(performanceId, seatIds);
-    await bookingRepository.updateBookingStatus(bookingId, "failed"); // 예매 상태 'failed'로 변경
+    await performanceService.unlockSeats(performanceId, seatIds); // 롤백 API 호출
+    await bookingRepository.updateBookingStatus(bookingId, "failed");
     throw new Error(
       "Failed to create payment intent. Booking has been rolled back."
     );
   }
 };
 
+/**
+ * 특정 사용자의 모든 예매 내역을 조회합니다.
+ */
 const getMyBookings = async (userId) => {
   return bookingRepository.getMyBookings(userId);
 };
 
+/**
+ * 예매 취소 API (결제 전 'pending' 상태일 때만)
+ */
 const cancelBooking = async (userId, bookingId) => {
   const booking = await bookingRepository.getBookingById(bookingId);
-
-  if (!booking) throw new Error("Booking not found.");
-  if (booking.userId !== userId)
-    throw new Error("Unauthorized to cancel this booking.");
-  if (booking.status === "confirmed")
-    throw new Error("Cannot cancel a confirmed booking.");
-
-  // 1. 좌석 잠금 해제
-  await seatService.releaseSeats(booking.performanceId, booking.seatIds);
-
-  // 2. 예매 상태 'cancelled'로 업데이트
+  if (!booking || booking.userId !== userId || booking.status !== "pending") {
+    const error = new Error("Booking not found or cannot be cancelled.");
+    error.status = 400;
+    throw error;
+  }
+  await performanceService.unlockSeats(booking.performanceId, booking.seatIds);
   await bookingRepository.updateBookingStatus(bookingId, "cancelled");
-
   return { message: "Booking cancelled successfully." };
-};
-
-// 결제 성공/실패 이벤트가 발생했을 때 호출될 함수
-const handlePaymentResult = async (paymentResult) => {
-  const { bookingId, status } = paymentResult; // payload에 bookingId가 있다고 가정
-  const booking = await bookingRepository.getBookingById(bookingId);
-
-  if (!booking) {
-    console.error(`[Payment Handler] Booking ${bookingId} not found.`);
-    return;
-  }
-
-  if (status === "SUCCESS") {
-    // (수정) 이미 처리된 건이 아니라면 'confirmed'로 변경
-    if (booking.status !== "confirmed") {
-      await bookingRepository.updateBookingStatus(bookingId, "confirmed");
-    }
-  } else {
-    // (수정) 이미 처리된 건이 아니라면 롤백 수행
-    if (booking.status !== "failed" && booking.status !== "cancelled") {
-      await seatService.releaseSeats(booking.performanceId, booking.seatIds);
-      await bookingRepository.updateBookingStatus(bookingId, "failed");
-    }
-  }
 };
 
 module.exports = {
   createBooking,
   getMyBookings,
   cancelBooking,
-  handlePaymentResult,
 };
