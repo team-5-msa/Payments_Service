@@ -9,12 +9,17 @@ const mockAuth = (req, res, next) => {
 const createBooking = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { performanceId, seatIds } = req.body;
+    // (수정) 클라이언트로부터 paymentMethod를 추가로 받음
+    const { performanceId, seatIds, paymentMethod } = req.body;
+
+    // (수정) 서비스 함수에 paymentMethod 인자 추가 전달
     const result = await bookingService.createBooking(
       userId,
       performanceId,
-      seatIds
+      seatIds,
+      paymentMethod
     );
+
     res.status(201).send({
       message: "Booking initiated. Please proceed to payment.",
       ...result,

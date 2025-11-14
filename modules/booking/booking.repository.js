@@ -1,4 +1,4 @@
-const { db, admin } = require("@/config/firebase");
+const { db, admin } = require("../../config/firebase");
 const { lockSeatsWithTransaction } = require("../seat/seat.repository");
 
 /**
@@ -7,37 +7,43 @@ const { lockSeatsWithTransaction } = require("../seat/seat.repository");
  */
 const createBookingWithSeatLock = async (bookingData) => {
   const bookingRef = db.collection("bookings").doc();
-  const bookingId = bookingRef.id;
+  const bookingId = bookingRef.id; // bookingId를 미리 생성합니다.
 
   // 트랜잭션 시작
   await db.runTransaction(async (t) => {
     // 1. 중앙 좌석 관리 컬렉션에서 좌석 잠금 시도
+    // (수정) bookingId를 인자로 추가하여 전달합니다.
     await lockSeatsWithTransaction(
       t,
       bookingData.performanceId,
       bookingData.seatIds,
-      bookingData.userId // 누가 잠그려는지 userId 전달
+      bookingData.userId,
+      bookingId // <--- 이 부분을 추가해야 합니다.
     );
 
-    // 2. 예매 문서 생성
-    const { seatDetails, ...restOfBookingData } = bookingData; // seatDetails 분리
+    // 2. 예매 문서 생성을 위한 데이터 준비
+    const { seatDetails, ...restOfBookingData } = bookingData;
+    const total_amount =
+      seatDetails?.reduce((sum, seat) => sum + seat.price, 0) || 0;
+
+    // 3. 예매 문서 생성
     t.set(bookingRef, {
       ...restOfBookingData,
       bookingId,
-      status: "pending", // 예매 생성 시 초기 상태는 'pending'
+      total_amount,
+      status: "pending",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 3. 예매 문서 하위의 'booked_Seats' 서브컬렉션에 좌석 정보 기록
-    // bookingData에 좌석별 상세 정보(가격, 타입 등)가 포함되어 있다고 가정
+    // 4. 예매 문서 하위의 'booked_Seats' 서브컬렉션에 좌석 정보 기록
     if (seatDetails && seatDetails.length > 0) {
       seatDetails.forEach((seat) => {
         const seatDocRef = bookingRef.collection("booked_Seats").doc(seat.id);
         t.set(seatDocRef, {
           price: seat.price,
           type: seat.type,
-          status: "locked", // 현재 상태는 'locked'
+          status: "locked",
           userId: bookingData.userId,
         });
       });
