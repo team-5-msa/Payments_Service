@@ -41,6 +41,8 @@ const createBookingWithSeatLock = async (bookingData) => {
       seatDetails.forEach((seat) => {
         const seatDocRef = bookingRef.collection("booked_Seats").doc(seat.id);
         t.set(seatDocRef, {
+          performanceId, // <-- 이 필드 추가
+          seatId: seat.id, // <-- 이 필드 추가
           price: seat.price,
           type: seat.type,
           status: "locked",

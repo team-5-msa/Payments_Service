@@ -30,6 +30,5 @@ const executePayment = async (req, res) => {
 };
 
 module.exports = {
-  // createIntent 제거
   executePayment,
 };

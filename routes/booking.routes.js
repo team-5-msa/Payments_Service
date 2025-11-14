@@ -11,7 +11,8 @@ const {
 router.use(mockAuth);
 
 router.post("/", createBooking);
-router.get("/my", getMyBookings);
-router.delete("/:id", cancelBooking);
+// [기존] router.get('/my', bookingController.mockAuth, bookingController.getMyBookings);
+router.get("/my/:userId", getMyBookings);
+router.delete("/my/:userId", cancelBooking);
 
 module.exports = router;

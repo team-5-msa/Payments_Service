@@ -1,35 +1,49 @@
-# API 테스트 명세서
+# API 테스트 명세서 - Payments_Service
 
-## 1. 예매 관련 API (`Bookings`)
+## 1. 좌석 예매 관련 API (`Bookings`)
 
-### 1.1. `POST /bookings` (예매 생성)
+### 1.1. 예매 생성 (`POST /bookings`)
 
-#### Request:
+사용자가 선택한 좌석을 잠금 처리하고 예매를 시작합니다.
+
+#### Request Body
 
 ```json
 POST /bookings
 Content-Type: application/json
 {
-  "performanceId": "perf_001",   // 공연 ID
-  "seatIds": ["A1", "A2"],       // 선택 좌석 ID 배열
-  "paymentMethod": "CREDIT_CARD" // 결제 방법
+  "performanceId": "perf_001",
+  "seatIds": ["A2"],
+  "paymentMethod": "CREDIT_CARD",
+  "userId": "user_123"
 }
 ```
 
-#### Response: 성공 (`201 Created`)
+#### Response (성공)
 
 ```json
+HTTP 201 Created
 {
   "message": "Booking initiated. Please proceed to payment.",
-  "bookingId": "bk_12345abcd", // 생성된 예매 ID
-  "paymentIntentId": "pi_12345efghi", // 연결된 결제 의향 ID
-  "totalAmount": 60000 // 총 결제 금액
+  "bookingId": "AGeV3v5J9UzyJ4bw9ECo",
+  "paymentIntentId": "i0do0nHZSn4TZr0tKOa9",
+  "totalAmount": 30000
 }
 ```
 
-#### Response: 실패 (`400 Bad Request`)
+#### Response (실패 - 좌석 잠금 실패)
 
 ```json
+HTTP 400 Bad Request
+{
+  "error": "Seat A2 is not available."
+}
+```
+
+#### Response (실패 - 필수 정보 누락)
+
+```json
+HTTP 400 Bad Request
 {
   "error": "User, performance, and seats are required."
 }
@@ -37,69 +51,55 @@ Content-Type: application/json
 
 ---
 
-### 1.2. `GET /bookings/my` (내 예매 조회)
+### 1.2. 내 예매 내역 조회 (`GET /bookings/my`)
 
-#### Request:
+사용자가 자신이 생성한 모든 예매 내역을 조회합니다.
 
-```json
-GET /bookings/my
-Content-Type: application/json
-Authorization: Bearer <JWT_TOKEN>
-```
+#### Request
 
-#### Response: 성공 (`200 OK`)
+- `Authorization`: Bearer `<USER_JWT_TOKEN>`
+
+#### Response (성공)
 
 ```json
+HTTP 200 OK
 [
   {
-    "bookingId": "bk_12345abcd",
+    "bookingId": "AGeV3v5J9UzyJ4bw9ECo",
     "performanceId": "perf_001",
-    "totalAmount": 60000,
-    "status": "confirmed", // 예매 상태 ["pending", "confirmed", "failed", "cancelled"]
-    "createdAt": "2025-11-14T10:00:00Z"
+    "seatIds": ["A2"],
+    "total_amount": 30000,
+    "status": "confirmed",
+    "userId": "user_123",
+    "createdAt": "2025-11-14T10:47:06Z"
   }
 ]
 ```
 
-#### Response: 실패 (`401 Unauthorized`)
-
-```json
-{
-  "error": "Unauthorized access."
-}
-```
-
 ---
 
-### 1.3. `DELETE /bookings/:id` (예매 취소)
+### 1.3. 예매 취소 (`DELETE /bookings/:id`)
 
-#### Request:
+`pending` 상태의 예매를 취소합니다.
+
+#### Request
+
+- `id`: 예매 ID
+- `Authorization`: Bearer `<USER_JWT_TOKEN>`
+
+#### Response (성공)
 
 ```json
-DELETE /bookings/bk_12345abcd
-Content-Type: application/json
-Authorization: Bearer <JWT_TOKEN>
-```
-
-#### Response: 성공 (`200 OK`)
-
-```json
+HTTP 200 OK
 {
   "message": "Booking cancelled successfully."
 }
 ```
 
-#### Response: 실패 (`404 Not Found`)
+#### Response (실패 - 권한 에러)
 
 ```json
-{
-  "error": "Booking not found."
-}
-```
-
-#### Response: 실패 (`403 Forbidden`)
-
-```json
+HTTP 403 Forbidden
 {
   "error": "Unauthorized to cancel this booking."
 }
@@ -109,40 +109,44 @@ Authorization: Bearer <JWT_TOKEN>
 
 ## 2. 결제 관련 API (`Payments`)
 
-### 2.1. `POST /payments/execute` (결제 실행)
+### 2.1. 결제 실행 (`POST /payments/execute`)
 
-#### Request:
+결제 프로세스를 실행합니다.
+
+#### Request Body
 
 ```json
 POST /payments/execute
 Content-Type: application/json
 {
-  "paymentIntentId": "pi_12345efghi",    // 결제를 실행할 의향 ID
-  "paymentMethodToken": "tok_12345abcd", // 결제 수단 토큰
-  "cvv": "123"                          // 신용 카드 CVV
+  "paymentIntentId": "i0do0nHZSn4TZr0tKOa9",
+  "paymentMethodToken": "tok_visa_creditCard",
+  "cvv": "123"
 }
 ```
 
-#### Response: 성공 (`200 OK`)
+#### Response (성공)
 
 ```json
+HTTP 200 OK
 {
   "message": "Payment SUCCESS",
-  "paymentIntentId": "pi_12345efghi",
+  "paymentIntentId": "i0do0nHZSn4TZr0tKOa9",
   "status": "SUCCESS",
   "pgMockData": {
     "isSuccess": true,
-    "processedAt": "2025-11-14T10:05:00Z"
+    "processedAt": "2025-11-14T10:50:00Z"
   }
 }
 ```
 
-#### Response: 실패 (`400 Bad Request`)
+#### Response (실패 - 카드 결제 실패)
 
 ```json
+HTTP 400 Bad Request
 {
   "message": "Payment FAILURE",
-  "paymentIntentId": "pi_12345efghi",
+  "paymentIntentId": "i0do0nHZSn4TZr0tKOa9",
   "status": "FAILURE",
   "error": {
     "failureCode": "CARD_DECLINED",
@@ -153,35 +157,39 @@ Content-Type: application/json
 
 ---
 
-## 공통 설정
+## 3. 좌석 잠금 관련 로직 (`occupiedSeats` 컬렉션)
 
-### 헤더 규칙
+`occupiedSeats` 컬렉션을 통해 좌석의 잠금을 관리합니다.
 
-- `Authorization`: API 요청에 인증이 필요한 경우 JWT 토큰을 헤더에 추가해야 합니다.
-- 모든 요청의 `Content-Type`은 `application/json`이어야 합니다.
+### 문서 구조 (`/occupiedSeats/perf_001_A2`)
 
----
-
-### 응답 코드 해석
-
-- 성공 시: `200 OK`, `201 Created`
-- 사용자 오류: `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`
-- 서버 오류: `500 Internal Server Error`
-
----
-
-### 테스트 툴
-
-- 테스트는 Postman 혹은 cURL 명령으로 실행 가능합니다.
-- 예시:
-
-```bash
-curl -X POST https://example.com/bookings \
--H "Content-Type: application/json" \
--H "Authorization: Bearer <JWT_TOKEN>" \
--d '{
-  "performanceId": "perf_001",
-  "seatIds": ["A1", "A2"],
-  "paymentMethod": "CREDIT_CARD"
-}'
+```json
+{
+  "bookingId": "AGeV3v5J9UzyJ4bw9ECo",
+  "userId": "user_123",
+  "lockedUntil": {
+    "seconds": 1763117083,
+    "nanoseconds": 136000000
+  },
+  "status": "locked"
+}
 ```
+
+---
+
+### API 테스트 요약
+
+1. **예매 성공 시나리오 테스트**:
+
+   - `POST /bookings`: 예매 생성 및 좌석 잠금.
+   - `POST /payments/execute`: 결제 실행 및 성공.
+
+2. **예매 취소 및 예매 실패 테스트**:
+
+   - `DELETE /bookings/:id`: 예매 취소 시도.
+   - 좌석 잠금 해제를 동반한 실패 시나리오.
+
+3. **좌석의 상태 관리 테스트**:
+   - `occupiedSeats` 컬렉션에서 좌석 상태 변경 확인.
+
+이 명세서는 팀원과 함께 빠른 API 테스트를 진행할 수 있도록 설계되었습니다. 추가 요청이 있으면 말씀해주세요! 😊
