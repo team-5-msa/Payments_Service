@@ -1,0 +1,10 @@
+# .gitignore 파일 내용
+
+# Node modules
+node_modules/
+
+# Log files
+npm-debug.log*
+
+# 💡 Firebase Admin Key가 들어가있는 env파일
+.env
