@@ -11,8 +11,13 @@ const {
 // router.use(mockAuth);
 
 router.post("/", createBooking);
+<<<<<<< HEAD
 // [기존] router.get('/my', bookingController.mockAuth, bookingController.getMyBookings);
 router.get("/my", getMyBookings);
 router.delete("/my", cancelBooking);
+=======
+router.get("/my", getMyBookings);
+router.delete("/:id", cancelBooking);
+>>>>>>> parent of 3accf10 (Add occupiedSeats API and refactor booking/payment flows)
 
 module.exports = router;
