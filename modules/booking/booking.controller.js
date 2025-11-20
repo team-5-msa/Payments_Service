@@ -1,35 +1,28 @@
+// booking.service.js는 실제 비즈니스 로직 처리를 담당합니다.
 const bookingService = require("./booking.service");
 
-<<<<<<< HEAD
 /**
- * 1. 예매 생성 및 결제 의향 생성 API (수량 기반)
+ * 1. 예매 생성 API
+ * 클라이언트에서 받은 요청 데이터를 검증하고, 예매 생성을 처리합니다.
  */
 const createBooking = async (req, res) => {
   try {
     const userId = req.headers["x-user-id"];
     const { performanceId, quantity, paymentMethod } = req.body;
 
-    if (!userId) {
-      return res
-        .status(401)
-        .send({ error: "User identification is missing in headers." });
-    }
+    // --- [디버깅 로그 1] ---
+    console.log("--- 1. API: /bookings (CREATE) ---");
+    console.log("Request Body:", req.body);
+    console.log("User ID:", userId);
+    // -------------------------
 
-=======
-// (가정) req.user는 인증 미들웨어를 통해 주입됩니다.
-const mockAuth = (req, res, next) => {
-  req.user = { id: "user_123" }; // 테스트용 사용자 ID
-  next();
-};
+    if (!userId)
+      return res.status(401).send({ error: "User identification is missing." });
+    if (!performanceId || !quantity || !paymentMethod)
+      return res.status(400).send({
+        error: "performanceId, quantity, paymentMethod are required.",
+      });
 
-const createBooking = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    // (수정) 클라이언트로부터 paymentMethod를 추가로 받음
-    const { performanceId, seatIds, paymentMethod } = req.body;
-
-    // (수정) 서비스 함수에 paymentMethod 인자 추가 전달
->>>>>>> parent of 3accf10 (Add occupiedSeats API and refactor booking/payment flows)
     const result = await bookingService.createBooking(
       userId,
       performanceId,
@@ -40,28 +33,26 @@ const createBooking = async (req, res) => {
     res.status(201).send({
       message:
         "Booking and payment intent created. Please proceed to payment execution.",
-      ...result, // bookingId 등
+      ...result,
     });
   } catch (error) {
+    console.error("[Controller Error: createBooking]", error);
     res.status(error.status || 500).send({ error: error.message });
   }
 };
 
 /**
- * 2. 내 예매 내역 조회 API
+ * 2. 사용자의 모든 예매 내역 조회 API
  */
 const getMyBookings = async (req, res) => {
   try {
-<<<<<<< HEAD
     const userId = req.headers["x-user-id"];
     if (!userId) {
       return res
         .status(401)
         .send({ error: "User identification is missing in headers." });
     }
-=======
-    const userId = req.user.id;
->>>>>>> parent of 3accf10 (Add occupiedSeats API and refactor booking/payment flows)
+
     const bookings = await bookingService.getMyBookings(userId);
     res.status(200).send(bookings);
   } catch (error) {
@@ -70,29 +61,22 @@ const getMyBookings = async (req, res) => {
 };
 
 /**
- * 3. 예매 취소 API (결제 전 'pending' 상태일 때만)
+ * 3. 예매 취소 API
+ * 예매의 상태가 'pending'인 경우 취소할 수 있습니다.
  */
 const cancelBooking = async (req, res) => {
   try {
-<<<<<<< HEAD
     const userId = req.headers["x-user-id"];
     const { bookingId } = req.body;
 
-    if (!userId) {
-      return res
-        .status(401)
-        .send({ error: "User identification is missing in headers." });
-    }
-    if (!bookingId) {
+    // 1. 필수 입력값 검증
+    if (!userId || !bookingId) {
       return res
         .status(400)
-        .send({ error: "bookingId is required in the body." });
+        .send({ error: "Both userId and bookingId are required." });
     }
 
-=======
-    const userId = req.user.id;
-    const { id: bookingId } = req.params;
->>>>>>> parent of 3accf10 (Add occupiedSeats API and refactor booking/payment flows)
+    // 2. 예매 취소 서비스 호출
     const result = await bookingService.cancelBooking(userId, bookingId);
     res.status(200).send(result);
   } catch (error) {
@@ -104,8 +88,4 @@ module.exports = {
   createBooking,
   getMyBookings,
   cancelBooking,
-<<<<<<< HEAD
-=======
-  mockAuth, // 라우터에서 사용
->>>>>>> parent of 3accf10 (Add occupiedSeats API and refactor booking/payment flows)
 };

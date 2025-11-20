@@ -7,19 +7,21 @@ const paymentService = require("./payment.service");
  */
 const executePayment = async (req, res) => {
   try {
-    const userId = req.headers["x-user-id"]; // 게이트웨이가 주입한 헤더
-    const { bookingId, paymentMethodToken, cvv } = req.body;
+    const userId = req.headers["x-user-id"];
+    const { bookingId, paymentMethodToken, cardNumber, cvv } = req.body;
 
-    if (!userId) {
+    if (!userId)
+      return res.status(401).send({ error: "User identification is missing." });
+    if (!bookingId || !paymentMethodToken || !cvv)
       return res
-        .status(401)
-        .send({ error: "User identification is missing in headers." });
-    }
+        .status(400)
+        .send({ error: "bookingId, paymentMethodToken, cvv are required." });
 
     const result = await paymentService.executePayment(
       userId,
       bookingId,
       paymentMethodToken,
+      cardNumber,
       cvv
     );
 
@@ -28,11 +30,11 @@ const executePayment = async (req, res) => {
       ...result,
     });
   } catch (error) {
+    console.error("[Controller Error: executePayment]", error);
     res.status(error.status || 500).send({ error: error.message });
   }
 };
 
 module.exports = {
-  // createIntent 제거
   executePayment,
 };

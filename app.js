@@ -1,36 +1,32 @@
 const express = require("express");
-const path = require("path");
-const cookieParser = require("cookie-parser");
 const logger = require("morgan");
-const routes = require("./routes"); // 통합 라우트 Import
 
-const app = express(); // Express 애플리케이션 객체 생성
+// 라우터 파일 import
+const bookingRouter = require("./routes/booking.routes");
+const paymentRouter = require("./routes/payment.routes");
+
+const app = express();
 
 // 미들웨어 설정
 app.use(logger("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
-app.use(express.static(path.join(__dirname, "public")));
 
-// 라우트 설정
-app.use("/", routes);
+// [핵심] 각 경로에 맞는 라우터를 정확히 연결
+app.use("/bookings", bookingRouter);
+app.use("/payments", paymentRouter);
 
-// 오류 처리: 404
+// 404 에러 핸들러
 app.use((req, res, next) => {
   const err = new Error("Not Found");
   err.status = 404;
   next(err);
 });
 
-// 오류 처리: 기타
-app.use((err, req, res) => {
-  res.status(err.status || 500);
-  res.json({
-    error: {
-      message: err.message,
-    },
-  });
+// 최종 에러 핸들러
+app.use((err, req, res, next) => {
+  console.error("[FATAL ERROR]", err);
+  res.status(err.status || 500).json({ error: err.message });
 });
 
-module.exports = app; // Express 애플리케이션 객체 내보내기
+module.exports = app;
