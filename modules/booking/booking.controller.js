@@ -1,6 +1,6 @@
 const { db } = require("../../config/firebase");
 const bookingService = require("./booking.service");
-const scheduleBookingExpiration = require("../../jobs/updatePendingBookingsHandler");
+const scheduleBookingExpiration = require("../../jobs/scheduleBookingExpiration");
 
 /**
  * 1. 예매 생성 API
@@ -72,7 +72,7 @@ const getMyBookings = async (req, res) => {
 
 /**
  * 3. 예매 취소 API
- * 예매의 상태가 'pending'인 경우 취소할 수 있습니다.
+ * 사용자의 예매 취소 요청을 처리합니다.
  */
 const cancelBooking = async (req, res) => {
   try {

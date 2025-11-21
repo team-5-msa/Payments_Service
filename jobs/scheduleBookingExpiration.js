@@ -48,6 +48,31 @@ const scheduleBookingExpiration = async (bookingDoc) => {
     console.log(
       `[Updated] Booking ID '${bookingId}' status changed to 'FAILED'.`
     );
+
+    // --- PaymentIntents 상태 업데이트 ---
+    const paymentIntentRef = db
+      .collection("paymentIntents")
+      .where("bookingId", "==", bookingId); // bookingId로 paymentIntents 조회
+    const paymentIntentSnapshots = await paymentIntentRef.get();
+
+    paymentIntentSnapshots.forEach(async (paymentDoc) => {
+      const paymentData = paymentDoc.data();
+
+      if (paymentData.status === "pending") {
+        await paymentDoc.ref.update({
+          status: "FAILED",
+          updatedAt: Timestamp.now(),
+        });
+        console.log(
+          `[Updated] PaymentIntent ID '${paymentDoc.id}' status changed to 'FAILED'.`
+        );
+      } else {
+        console.log(
+          `[Skip] PaymentIntent ID '${paymentDoc.id}' already in status '${paymentData.status}'.`
+        );
+      }
+    });
+    // -------------------------------------
   }, expirationTime);
 };
 
