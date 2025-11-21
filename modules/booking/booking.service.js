@@ -1,6 +1,6 @@
 const bookingRepository = require("./booking.repository");
 const paymentService = require("../payment/payment.service");
-const performanceService = require("./performance.service");
+const performanceService = require("../mocks/mockPerformance.service");
 
 // ✨ 예매 한도 상수를 선언합니다.
 const MAX_TICKETS_PER_USER = 10;

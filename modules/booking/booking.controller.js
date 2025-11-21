@@ -1,5 +1,6 @@
-// booking.service.js는 실제 비즈니스 로직 처리를 담당합니다.
+const { db } = require("../../config/firebase");
 const bookingService = require("./booking.service");
+const scheduleBookingExpiration = require("../../jobs/updatePendingBookingsHandler");
 
 /**
  * 1. 예매 생성 API
@@ -29,6 +30,15 @@ const createBooking = async (req, res) => {
       quantity,
       paymentMethod
     );
+
+    // --- [scheduleBookingExpiration 호출] ---
+    const bookingDoc = await db
+      .collection("bookings")
+      .doc(result.bookingId)
+      .get();
+    console.log(`[Debug] Created booking with ID ${result.bookingId}`);
+    await scheduleBookingExpiration(bookingDoc);
+    // ---------------------------------------------
 
     res.status(201).send({
       message:

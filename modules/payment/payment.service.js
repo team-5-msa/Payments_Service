@@ -1,8 +1,8 @@
 const paymentRepository = require("./payment.repository");
 const { db, admin } = require("../../config/firebase");
 const { recordEvent, createLedgerEntries } = require("./payment.helper");
-const { validatePerformance } = require("./validation");
-const { getMockPaymentResult } = require("./payment.mock");
+const { validatePerformanceID } = require("./validatePerformanceID");
+const { getMockPaymentResult } = require("../mocks/PGprocess.mock");
 
 /**
  * 결제 의향 생성 (booking.service에서 호출)
@@ -87,7 +87,7 @@ const executePayment = async (
 
     const intentData = intentDoc.data();
     const performanceId = intentData.performanceId;
-    const performanceData = await validatePerformance(performanceId);
+    const performanceData = await validatePerformanceID(performanceId);
 
     if (intentData.status !== "PENDING" && intentData.status !== "FAILURE") {
       throw new Error(
