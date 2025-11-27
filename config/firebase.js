@@ -1,7 +1,7 @@
 // config/firebase.js (수정된 내용)
 
 const admin = require("firebase-admin");
-// require('dotenv').config(); // Fly.io에서는 필요 없습니다. (로컬 테스트용으로 남겨둘 수는 있습니다.)
+require("dotenv").config(); // Fly.io에서는 필요 없습니다. (로컬 테스트용으로 남겨둘 수는 있습니다.)
 
 // 1. Base64로 인코딩된 환경 변수(문자열)를 가져옵니다.
 // 안전하게 설정된 'FIREBASE_SERVICE_ACCOUNT_B64'를 사용합니다.

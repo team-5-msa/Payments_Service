@@ -4,8 +4,7 @@ const {
   getMockPaymentResult,
   processMockRefund,
 } = require("../mocks/PGprocess.mock");
-const performanceService = require("../mocks/mockPerformance.service"); // [Refactoring] 재고 관리 일원화
-
+const performanceService = require("../mocks/mockPerformance.service");
 /**
  * 결제 의향 생성
  */
@@ -179,8 +178,31 @@ const refundPayment = async (bookingId, userId) => {
   return { refunded: true, refundId: pgRefundResult.refundId };
 };
 
+/**
+ * Booking Service에서 호출하여 PaymentIntent의 상태를 업데이트합니다.
+ * 트랜잭션 외부에서 실행됩니다.
+ */
+const updateIntentStatusForCancellation = async (bookingId) => {
+  // 1. 상태 업데이트 실행 (Repo 호출)
+  // paymentRepository.updateIntentStatusNonTx를 호출합니다.
+  await paymentRepository.updateIntentStatusNonTx(bookingId, "CANCELLED");
+
+  // 2. 이벤트 기록
+  recordEvent(
+    bookingId,
+    "INTENT_CANCELLED_PRE_PAYMENT",
+    { reason: "Booking cancelled by user" },
+    "CANCELLED"
+  );
+
+  console.log(
+    `[PaymentService] Intent ${bookingId} status updated to CANCELLED for pre-payment.`
+  );
+};
+
 module.exports = {
   createPaymentIntent,
   executePayment,
   refundPayment,
+  updateIntentStatusForCancellation,
 };

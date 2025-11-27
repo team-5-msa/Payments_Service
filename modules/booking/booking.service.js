@@ -1,12 +1,28 @@
 // booking.service.js (performanceService와 에러 핸들링을 동기화)
 
 const bookingRepository = require("./booking.repository");
-const paymentRepository = require("../payment/payment.repository");
 const paymentService = require("../payment/payment.service");
 const performanceService = require("../mocks/mockPerformance.service"); // Mock Performance Service
 
 // ✨ 예매 한도 상수
 const MAX_TICKETS_PER_USER = 10;
+
+// =========================================================================
+// 👇 [개선] 상태 업데이트 로직을 Service 내부에 중앙화
+// =========================================================================
+
+/**
+ * 내부적으로 Booking 상태 업데이트를 처리하고 부가 로직을 담당합니다.
+ */
+const updateBookingStatus = async (bookingId, status) => {
+  // 1. Repository 호출로 상태 변경
+  await bookingRepository.updateBookingStatus(bookingId, status);
+
+  // 2. [미래 확장성] 상태 변경 이벤트 기록 등을 추가할 수 있습니다.
+  console.log(
+    `[BookingService] Booking ${bookingId} status updated to ${status}`
+  );
+};
 
 /**
  * 1. 예매 생성 및 결제 의향 생성
@@ -17,7 +33,8 @@ const createBooking = async (
   quantity,
   paymentMethod
 ) => {
-  performanceService.seedPerformance(performanceId); // [테스트용] 초기 데이터 시드 만들기
+  performanceService.seedPerformance(performanceId); // [테스트용] 초기 데이터 시드 생성
+
   // 1. 기존 예매 수량 확인 (Repository 사용)
   const existingTickets = await bookingRepository.getActiveTicketCount(
     userId,
@@ -26,7 +43,6 @@ const createBooking = async (
 
   // 2. 예매 한도 검사
   if (existingTickets + quantity > MAX_TICKETS_PER_USER) {
-    // HttpError 대신 Status를 가진 일반 Error 객체 사용 (상위 컨트롤러에서 처리)
     const error = new Error(
       `You cannot book more than ${MAX_TICKETS_PER_USER} tickets. Already booked: ${existingTickets}.`
     );
@@ -35,26 +51,14 @@ const createBooking = async (
   }
 
   // 3. 공연 정보 조회 (Performance Service 호출)
-  // performanceService는 404 HttpError를 throw/reject하므로, 별도 try-catch 없이 상위로 전달됨.
   const performanceData = await performanceService.getPerformanceById(
     performanceId
   );
-  // 참고: performanceData가 null인 경우, 이미 service 내부에서 404 에러로 처리되어 여기서 별도 확인 불필요.
-
-  // 4. 재고 확인 (이 로직은 이제 performanceService.reserveTickets 내부에서 처리됩니다.)
-  // performanceService.reserveTickets를 호출하기 전에 재고 확인을 명시적으로 제거하여,
-  // 재고 확인 로직이 Performance Service로 일원화되도록 합니다. (SRP 원칙 준수)
-  //  if (!performanceData) {
-  //   const error = new Error(`Performance '${performanceId}' not found.`);
-  //   error.status = 404;
-  //   throw error;
-  // }
-  // 같은 의미로 재고 부족 검사는 reserveTickets 내부로 이동되었습니다.
 
   const totalAmount = performanceData.price * quantity;
   const seatIds = Array.from({ length: quantity }, (_, i) => `A${i + 1}`);
 
-  // 5. 예매 문서 생성 (Repository 사용)
+  // 4. 예매 문서 생성 (Repository 사용)
   const bookingId = await bookingRepository.createBooking({
     userId,
     performanceId,
@@ -64,11 +68,10 @@ const createBooking = async (
   });
 
   try {
-    // 6. 재고 차감 (Mock Service 호출)
-    // 이 호출은 내부에서 재고 부족 시 409 HttpError를 throw/reject합니다.
+    // 5. 재고 차감 (Mock Service 호출)
     await performanceService.reserveTickets(performanceId, quantity);
 
-    // 7. 결제 의향 생성
+    // 6. 결제 의향 생성
     await paymentService.createPaymentIntent(
       bookingId,
       userId,
@@ -79,21 +82,26 @@ const createBooking = async (
 
     return { bookingId, totalAmount };
   } catch (error) {
-    // 8. 보상 트랜잭션 (실패 시 롤백)
+    // 7. 보상 트랜잭션 (실패 시 롤백)
     console.error(
       `[Booking Rollback] Booking ${bookingId} failed. Reverting... Error: ${error.message}`
     );
 
-    // 상태 업데이트 (Repository 사용)
-    await bookingRepository.updateBookingStatus(bookingId, "failed");
+    // 상태 업데이트 (Service 함수 사용)
+    await updateBookingStatus(bookingId, "FAILED");
 
     // [중요] 재고 복구 (Mock Service 호출)
-    // 이전 단계(reserveTickets)에서 재고가 차감되었을 가능성이 있으므로 무조건 복구 시도.
-    // performanceService.cancelTickets는 ID 오류(404)에 대해서는 에러를 던지지만,
-    // 이 시점에서는 ID가 유효하므로 안전하게 호출 가능.
-    await performanceService.cancelTickets(performanceId, quantity);
+    // 재고 복구 실패 시 원본 에러를 방해하지 않도록 try/catch로 감싸 로그 기록
+    try {
+      await performanceService.cancelTickets(performanceId, quantity);
+      console.log(`[Rollback Success] Stock restored for ${performanceId}.`);
+    } catch (stockError) {
+      console.error(
+        `[CRITICAL ROLLBACK FAILURE] Failed to restore stock for ${performanceId}. Error: ${stockError.message}`
+      );
+    }
 
-    // 발생한 에러를 상위 호출자(Controller)에게 그대로 다시 던져서 적절한 HTTP 응답을 하도록 위임.
+    // 발생한 에러를 상위 호출자에게 그대로 다시 던짐.
     throw error;
   }
 };
@@ -119,11 +127,11 @@ const cancelBooking = async (userId, bookingId) => {
 
   // Case A: 결제 전 (PENDING) -> 단순 취소
   if (booking.status === "PENDING") {
-    // 1. Booking 상태 취소 (Repository 사용)
-    await bookingRepository.updateBookingStatus(bookingId, "CANCELLED");
+    // 1. Booking 상태 취소 (Service 함수 사용)
+    await updateBookingStatus(bookingId, "CANCELLED"); // 👈 [개선 적용]
 
-    // 2. PaymentIntent 상태 취소 (Repository 패턴 적용)
-    await paymentRepository.updateIntentStatusNonTx(bookingId, "CANCELLED");
+    // 2. PaymentIntent 상태 취소 (Service 패턴 적용)
+    await paymentService.updateIntentStatusForCancellation(bookingId);
 
     // 3. 재고 복구 (Mock Service 일원화)
     await performanceService.cancelTickets(
@@ -138,6 +146,21 @@ const cancelBooking = async (userId, bookingId) => {
   if (booking.status === "PAID") {
     // 환불 로직은 PaymentService에 위임되어 있음 (PaymentService 내부에서 재고 복구 처리 필요)
     const refundResult = await paymentService.refundPayment(bookingId, userId);
+
+    // [참고] refundPayment가 성공하면, 내부적으로 Booking 상태도 CANCELLED/REFUNDED로 변경되어야 합니다.
+    // 상태 변경은 성공시에 부킹 자체에서 반영하도록 리팩토링할까? 지금 환불을 위임하고 성공하면 payment에서 booking의 상태도 바꿔주고 있는데
+    // 이거 나중에 분리해야겠지? 성공 시그널을 받으면 booking 내부에서 상태변경 자체적으로 처리하도록 말이야
+    // 목표는 결제(Payment)와 예약(Booking) 서비스 간의 강한 결합을 끊고 이벤트 기반 통신 모델을 확립하는 것입니다.
+    // 🎯 목표: 환불 프로세스의 서비스 책임 분리
+    // 현상: BookingService의 환불 요청(cancelBooking) 시, PaymentService 내부(refundPayment)에서 직접 Booking 상태를 업데이트하고 있습니다. (강한 결합)
+
+    // 최종 목표: PaymentService는 자신의 책임만 수행하고 이벤트 발행으로 작업을 완료합니다. BookingService는 이 이벤트를 비동기로 구독하여 자신의 상태를 독립적으로 업데이트합니다.
+    // 여기서는 PaymentService가 그 역할을 하도록 위임합니다.
+
+    // BookingService는 환불 요청을 시작하고, PaymentService가 환불을 처리하며, 성공 시 이벤트를 발행합니다. BookingService는 이 이벤트를 구독하여 상태를 업데이트합니다.
+    // 이렇게 하면 두 서비스 간의 결합도가 낮아지고, 각 서비스는 자신의 책임에 집중할 수 있습니다. 이는 마이크로서비스 아키텍처의 원칙에 부합합니다.
+    // 따라서, refundPayment 함수 내에서 Booking 상태 업데이트를 제거하고, 이벤트 발행 메커니즘을 구현하는 것이 좋습니다.
+    // 이것 말고도 강한 결합 있으면 다 제거하고 리팩토링해줘~
 
     return { message: "Booking refunded successfully.", ...refundResult };
   }
