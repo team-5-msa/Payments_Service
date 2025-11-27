@@ -1,21 +1,27 @@
 const { db, admin } = require("../../config/firebase");
+const { generateBookingId } = require("../utils/idGenerator");
 
 /**
  * 예매 정보를 받아 Firestore에 새로운 문서를 생성합니다.
  */
 const createBooking = async (bookingData) => {
-  const bookingRef = db.collection("bookings").doc();
-  const bookingId = bookingRef.id;
+  // 🎯 커스텀 ID 생성
+  const { userId, performanceId } = bookingData;
+  const customBookingId = generateBookingId(performanceId, userId);
+
+  // Firestore에 문서를 수동으로 생성 (커스텀 ID 사용)
+  const bookingRef = db.collection("bookings").doc(customBookingId);
 
   await bookingRef.set({
     ...bookingData,
-    bookingId: bookingId,
+    bookingId: customBookingId,
     status: "PENDING",
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  return bookingId;
+  console.log(`[Booking Created] New booking ID: ${customBookingId}`);
+  return customBookingId;
 };
 
 /**
