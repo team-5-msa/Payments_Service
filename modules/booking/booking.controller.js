@@ -1,6 +1,6 @@
 const { db } = require("../../config/firebase");
 const bookingService = require("./booking.service");
-const scheduleBookingExpiration = require("../../jobs/scheduleBookingExpiration");
+const scheduleBookingExpiration = require("../../utils/scheduleBookingExpiration");
 
 /**
  * 1. 예매 생성 API

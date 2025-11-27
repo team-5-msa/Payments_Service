@@ -2,7 +2,7 @@ const express = require("express");
 const logger = require("morgan");
 const cron = require("node-cron");
 const { db } = require("./config/firebase");
-const updateBookingStatusFromEvents = require("./jobs/updateBookingStatus");
+const updateBookingStatusFromEvents = require("./utils/updateBookingStatus");
 
 // 라우터 파일 import
 const bookingRouter = require("./routes/booking.routes");
