@@ -12,9 +12,9 @@ const createBooking = async (req, res) => {
     const { performanceId, quantity, paymentMethod } = req.body;
 
     // --- [디버깅 로그 1] ---
-    console.log("--- 1. API: /bookings (CREATE) ---");
-    console.log("Request Body:", req.body);
-    console.log("User ID:", userId);
+    // console.log("--- 1. API: /bookings (CREATE) ---");
+    // console.log("Request Body:", req.body);
+    // console.log("User ID:", userId);
     // -------------------------
 
     if (!userId)
