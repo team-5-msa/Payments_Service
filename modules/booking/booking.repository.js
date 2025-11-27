@@ -1,5 +1,5 @@
 const { db, admin } = require("../../config/firebase");
-const { generateBookingId } = require("../utils/generateBookingId");
+const { generateBookingId } = require("../../utils/generateBookingId");
 
 /**
  * 예매 정보를 받아 Firestore에 새로운 문서를 생성합니다.
