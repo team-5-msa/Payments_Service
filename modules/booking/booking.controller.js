@@ -12,10 +12,11 @@ const createBooking = async (req, res) => {
     const { performanceId, quantity, paymentMethod } = req.body;
 
     // --- [디버깅 로그 1] ---
-    // console.log("--- 1. API: /bookings (CREATE) ---");
-    // console.log("Request Body:", req.body);
-    // console.log("User ID:", userId);
+    console.log("--- 1. API: /bookings (CREATE) ---");
+    console.log("Request Body:", req.body);
+    console.log("User ID:", userId);
     // -------------------------
+    console.log("이거나오면깃업로드하면자동으로업데이트하는거임");
 
     if (!userId)
       return res.status(401).send({ error: "User identification is missing." });
