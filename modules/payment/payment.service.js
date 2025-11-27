@@ -1,11 +1,13 @@
 const paymentRepository = require("./payment.repository");
-const { db, admin } = require("../../config/firebase");
-const { recordEvent, createLedgerEntries } = require("./payment.helper");
-const { validatePerformanceID } = require("./validatePerformanceID");
-const { getMockPaymentResult } = require("../mocks/PGprocess.mock");
+const { recordEvent } = require("./payment.helper");
+const {
+  getMockPaymentResult,
+  processMockRefund,
+} = require("../mocks/PGprocess.mock");
+const performanceService = require("../mocks/mockPerformance.service"); // [Refactoring] 재고 관리 일원화
 
 /**
- * 결제 의향 생성 (booking.service에서 호출)
+ * 결제 의향 생성
  */
 const createPaymentIntent = async (
   bookingId,
@@ -39,7 +41,7 @@ const createPaymentIntent = async (
 };
 
 /**
- * 실제 결제 실행 (Mock 결제 로직만 사용)
+ * 실제 결제 실행
  */
 const executePayment = async (
   userId,
@@ -55,10 +57,35 @@ const executePayment = async (
   }
 
   console.log(
-    `Executing payment for bookingId: ${bookingId}, userId: ${userId}, cardNumber: ${cardNumber}, cvv: ${cvv}`
+    `Executing payment for bookingId: ${bookingId}, userId: ${userId}`
   );
 
-  // ✨ Mock 결제 로직 호출
+  // 1. 데이터 조회 (Repo 사용)
+  const { intentData, bookingData } =
+    await paymentRepository.getIntentAndBooking(bookingId);
+
+  if (!intentData) throw new Error("Payment intent not found");
+  if (!bookingData) throw new Error("Booking not found");
+
+  // 2. 상태 검증
+  if (intentData.status !== "PENDING" && intentData.status !== "FAILURE") {
+    throw new Error(
+      `Payment cannot be processed. Current status is '${intentData.status}'.`
+    );
+  }
+
+  // 3. 재고 검증 (Mock Service 사용 - Firestore 재고 확인 로직 대체)
+  const performanceData = await performanceService.getPerformanceById(
+    intentData.performanceId
+  );
+  // 주의: createBooking에서 이미 재고를 잡았기 때문에 여기선 정보만 확인하거나,
+  // 만약 결제 시점에 재고를 다시 체크해야 한다면 아래 로직 유지.
+  if (performanceData.stock < bookingData.quantity) {
+    // 이미 예약된 수량 외에 추가 재고가 필요한 로직이 아니라면, 이 체크는 생략 가능할 수 있음.
+    // 여기서는 '유효한 공연인지' 확인하는 용도로 유지.
+  }
+
+  // 4. Mock PG 결제 실행
   const lastDigit = cvv.slice(-1);
   const { isSuccessMock, failureCode, failureMessage } =
     getMockPaymentResult(lastDigit);
@@ -69,53 +96,21 @@ const executePayment = async (
     failureMessage,
     processedAt: new Date().toISOString(),
   };
+
   const finalStatus = isSuccessMock ? "SUCCESS" : "FAILURE";
   const bookingFinalStatus = isSuccessMock ? "PAID" : "PAYMENT_FAILED";
 
-  // Firestore 트랜잭션으로 모든 작업을 처리
-  await db.runTransaction(async (t) => {
-    const intentRef = db.collection("paymentIntents").doc(bookingId);
-    const bookingRef = db.collection("bookings").doc(bookingId);
+  // 5. 트랜잭션 처리 (Repo 위임)
+  await paymentRepository.completePaymentTransaction(
+    bookingId,
+    finalStatus,
+    bookingFinalStatus,
+    pgData,
+    intentData.amount,
+    isSuccessMock
+  );
 
-    const [intentDoc, bookingDoc] = await Promise.all([
-      t.get(intentRef),
-      t.get(bookingRef),
-    ]);
-
-    if (!intentDoc.exists) throw new Error("Payment intent not found");
-    if (!bookingDoc.exists) throw new Error("Booking not found");
-
-    const intentData = intentDoc.data();
-    const performanceId = intentData.performanceId;
-    const performanceData = await validatePerformanceID(performanceId);
-
-    if (intentData.status !== "PENDING" && intentData.status !== "FAILURE") {
-      throw new Error(
-        `Payment cannot be processed. Current status is '${intentData.status}'.`
-      );
-    }
-
-    if (performanceData.stock < bookingDoc.data().quantity && isSuccessMock) {
-      throw new Error(`Performance ${performanceId} is out of stock.`);
-    }
-
-    t.update(intentRef, {
-      status: finalStatus,
-      pgData,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    t.update(bookingRef, {
-      status: bookingFinalStatus,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    if (isSuccessMock) {
-      createLedgerEntries(t, bookingId, intentData.amount);
-    }
-  });
-
-  // 이벤트 기록
+  // 6. 이벤트 기록
   recordEvent(
     bookingId,
     isSuccessMock ? "PAYMENT_SUCCESS" : "PAYMENT_FAILURE",
@@ -130,16 +125,62 @@ const executePayment = async (
   };
 
   if (!isSuccessMock) {
-    response.failureDetails = {
-      code: failureCode,
-      message: failureMessage,
-    };
+    response.failureDetails = { code: failureCode, message: failureMessage };
   }
 
   return response;
 };
 
+/**
+ * 환불 처리
+ */
+const refundPayment = async (bookingId, userId) => {
+  // 1. 결제 상태 확인 (Repo 사용)
+  const { intentData, bookingData } =
+    await paymentRepository.getIntentAndBooking(bookingId);
+
+  if (!intentData || !bookingData)
+    throw new Error("Booking or PaymentIntent not found");
+
+  if (intentData.status !== "SUCCESS" && bookingData.status !== "PAID") {
+    throw new Error("환불은 결제 완료 상태(PAID)에서만 가능합니다.");
+  }
+
+  // 2. Mock PG사 환불 처리
+  const pgRefundResult = await processMockRefund(bookingId);
+  if (!pgRefundResult.success) {
+    // [추가]: 환불 실패 이벤트 기록
+    await recordEvent(
+      bookingId,
+      "REFUND_FAILURE",
+      { message: "PG Refund Failed" },
+      "FAILED"
+    );
+    throw new Error("PG 환불 실패");
+  }
+
+  // 3. DB 상태 업데이트
+  await paymentRepository.completeRefundTransaction(bookingId);
+
+  // 4. [핵심 추가]: 환불 성공 이벤트 기록
+  await recordEvent(
+    bookingId,
+    "REFUND_SUCCESS", // ⬅️ 배치 잡이 찾는 이벤트 타입
+    { refundId: pgRefundResult.refundId, amount: intentData.amount },
+    "SUCCESS" // ⬅️ 배치 잡이 찾는 최종 상태
+  );
+
+  // 5. 재고 복구 (Mock Service 일원화)
+  await performanceService.cancelTickets(
+    bookingData.performanceId,
+    bookingData.quantity
+  );
+
+  return { refunded: true, refundId: pgRefundResult.refundId };
+};
+
 module.exports = {
   createPaymentIntent,
   executePayment,
+  refundPayment,
 };

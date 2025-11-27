@@ -1,7 +1,7 @@
 const { db, admin } = require("../../config/firebase");
 
 /**
- * 'paymentIntents' 컬렉션에 새 문서를 생성합니다.
+ * 결제 의향(PaymentIntent) 생성
  */
 const createIntent = async (
   bookingId,
@@ -25,7 +25,7 @@ const createIntent = async (
 };
 
 /**
- * 회계 원장(Ledger) 문서를 생성합니다. (트랜잭션 내에서 사용)
+ * 회계 원장 생성 (Internal Helper)
  */
 const createLedgerEntries = (t, bookingId, amount) => {
   const ledgerRef = db.collection("ledgerEntries");
@@ -51,17 +51,97 @@ const createLedgerEntries = (t, bookingId, amount) => {
 };
 
 /**
- * 공연 재고를 차감하고 참여자를 추가합니다. (트랜잭션 내에서 사용)
+ * 단순 상태 업데이트 (Non-Transaction)
  */
-const updatePerformanceStock = (t, performanceRef, userId) => {
-  t.update(performanceRef, {
-    stock: admin.firestore.FieldValue.increment(-1),
-    participants: admin.firestore.FieldValue.arrayUnion(userId),
+const updateIntentStatusNonTx = async (bookingId, status) => {
+  const intentRef = db.collection("paymentIntents").doc(bookingId);
+  await intentRef.update({
+    status: status,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  console.log(`[PaymentRepository] Intent ${bookingId} updated to ${status}`);
+};
+
+/**
+ * 데이터 조회용 (Intent & Booking)
+ */
+const getIntentAndBooking = async (bookingId) => {
+  const intentRef = db.collection("paymentIntents").doc(bookingId);
+  const bookingRef = db.collection("bookings").doc(bookingId);
+
+  const [intentDoc, bookingDoc] = await Promise.all([
+    intentRef.get(),
+    bookingRef.get(),
+  ]);
+
+  return {
+    intentData: intentDoc.exists ? intentDoc.data() : null,
+    bookingData: bookingDoc.exists ? bookingDoc.data() : null,
+  };
+};
+
+/**
+ * [Transaction] 결제 실행 결과 반영
+ * Service에서 DB 트랜잭션을 직접 다루지 않도록 캡슐화함
+ */
+const completePaymentTransaction = async (
+  bookingId,
+  finalStatus, // PaymentIntent status (SUCCESS/FAILURE)
+  bookingFinalStatus, // Booking status (PAID/PAYMENT_FAILED)
+  pgData,
+  amount,
+  isSuccessMock
+) => {
+  await db.runTransaction(async (t) => {
+    const intentRef = db.collection("paymentIntents").doc(bookingId);
+    const bookingRef = db.collection("bookings").doc(bookingId);
+
+    // 상태 업데이트
+    t.update(intentRef, {
+      status: finalStatus,
+      pgData,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    t.update(bookingRef, {
+      status: bookingFinalStatus,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // 성공 시 원장 기록
+    if (isSuccessMock) {
+      createLedgerEntries(t, bookingId, amount);
+    }
   });
 };
 
+/**
+ * [Transaction] 환불 처리 반영
+ */
+const completeRefundTransaction = async (bookingId) => {
+  await db.runTransaction(async (t) => {
+    const intentRef = db.collection("paymentIntents").doc(bookingId);
+    const bookingRef = db.collection("bookings").doc(bookingId);
+
+    // Intent 상태 변경
+    t.update(intentRef, {
+      status: "REFUNDED",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Booking 상태 변경
+    t.update(bookingRef, {
+      status: "REFUNDED",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+};
+
+// ✨ 깔끔해진 exports
 module.exports = {
   createIntent,
-  createLedgerEntries,
-  updatePerformanceStock,
+  updateIntentStatusNonTx,
+  getIntentAndBooking,
+  completePaymentTransaction,
+  completeRefundTransaction,
 };

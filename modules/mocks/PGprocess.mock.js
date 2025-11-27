@@ -42,4 +42,15 @@ const getMockPaymentResult = (lastDigit) => {
   return { isSuccessMock, failureCode, failureMessage };
 };
 
-module.exports = { getMockPaymentResult };
+/**
+ * Mock PG사 환불 처리 함수
+ * @param {string} bookingId
+ * @returns {Promise<{success: boolean, refundId: string}>}
+ */
+const processMockRefund = async (bookingId) => {
+  // 실제 PG사 연동 대신 0.5초 후 성공 반환
+  await new Promise((res) => setTimeout(res, 500));
+  return { success: true, refundId: `mock-refund-${bookingId}` };
+};
+
+module.exports = { getMockPaymentResult, processMockRefund };
