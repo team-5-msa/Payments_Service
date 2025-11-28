@@ -4,12 +4,10 @@ const {
   getMockPaymentResult,
   processMockRefund,
 } = require("../mocks/PGprocess.mock");
+const logger = require("../../utils/logger");
+const { NotFoundError, BadRequestError } = require("../../utils/errorHandler"); // 에러 처리 추가
 
-// ✨ Booking DB 접근 대신 Booking Service를 사용
-// 주의: 순환 참조(Circular Dependency)가 발생할 수 있는 구조입니다.
-// 실제 운영 환경에서는 Event Bus를 사용하거나 계층을 분리해야 합니다.
-// 여기서는 require 시점을 함수 내부로 미루거나 구조적으로 해결했다고 가정합니다.
-const bookingService = require("../booking/booking.service");
+// ❌ 순환 참조 문제로 인해 상단에서 bookingService를 require하는 것을 제거합니다.
 
 /**
  * 결제 의향 생성
@@ -21,7 +19,19 @@ const createPaymentIntent = async (
   paymentMethod,
   performanceId
 ) => {
-  // 파라미터 검증 로직 유지...
+  if (
+    !bookingId ||
+    !userId ||
+    !amount ||
+    amount <= 0 ||
+    !paymentMethod ||
+    !performanceId
+  ) {
+    throw new BadRequestError(
+      "Missing or invalid parameters for payment intent creation."
+    );
+  }
+
   await paymentRepository.createIntent(
     bookingId,
     userId,
@@ -29,6 +39,8 @@ const createPaymentIntent = async (
     paymentMethod,
     performanceId
   );
+
+  logger.info("[PaymentService]", `Intent created for booking: ${bookingId}`);
   return { message: "Payment intent successfully created.", bookingId };
 };
 
@@ -42,28 +54,35 @@ const executePayment = async (
   cardNumber,
   cvv
 ) => {
+  // ✨ 순환 참조 회피를 위해 함수 내부에서 require 합니다.
+  const bookingService = require("../booking/booking.service");
+
   if (!bookingId || !paymentMethodToken || !cvv) {
-    throw new Error("Missing parameters");
+    throw new BadRequestError("Missing bookingId, token, or cvv");
   }
 
-  console.log(`Executing payment for bookingId: ${bookingId}`);
+  logger.info(
+    "[PaymentService]",
+    `Executing payment for bookingId: ${bookingId}`
+  ); // 1. PaymentIntent 조회 (Booking 정보는 조회하지 않음)
 
-  // 1. PaymentIntent 조회 (Booking 정보는 조회하지 않음)
   const intentData = await paymentRepository.getPaymentIntent(bookingId);
-  if (!intentData) throw new Error("Payment intent not found");
+  if (!intentData) throw new NotFoundError("Payment intent not found"); // 2. 상태 검증
 
-  // 2. 상태 검증
   if (intentData.status !== "PENDING" && intentData.status !== "FAILURE") {
-    throw new Error(
+    throw new BadRequestError(
       `Payment cannot be processed. Status: ${intentData.status}`
     );
-  }
+  } // 3. Booking 유효성 검사 위임 (Service-to-Service)
 
-  // 3. ✨ Booking 유효성 검사 위임 (Service-to-Service)
-  // PaymentService는 Booking DB를 모르므로 BookingService에 물어봅니다.
-  await bookingService.validateBookingForPayment(bookingId, userId);
+  try {
+    // 이 시점에 bookingService는 완전히 로드된 상태입니다.
+    await bookingService.validateBookingForPayment(bookingId, userId);
+  } catch (error) {
+    // Booking이 유효하지 않은 경우 (PENDING 상태가 아니거나 사용자 불일치 등)
+    throw new BadRequestError(`Booking validation failed: ${error.message}`);
+  } // 4. Mock PG 결제 실행
 
-  // 4. Mock PG 결제 실행
   const lastDigit = cvv.slice(-1);
   const { isSuccessMock, failureCode, failureMessage } =
     getMockPaymentResult(lastDigit);
@@ -75,19 +94,16 @@ const executePayment = async (
     processedAt: new Date().toISOString(),
   };
 
-  const finalStatus = isSuccessMock ? "SUCCESS" : "FAILURE";
+  const finalStatus = isSuccessMock ? "SUCCESS" : "FAILURE"; // 5. Payment 트랜잭션 처리 (오직 Payment DB만 수정)
 
-  // 5. Payment 트랜잭션 처리 (오직 Payment DB만 수정)
   await paymentRepository.completePaymentTransaction(
     bookingId,
     finalStatus,
     pgData,
     intentData.amount,
     isSuccessMock
-  );
+  ); // 6. Booking 상태 업데이트 요청 (Service-to-Service)
 
-  // 6. ✨ Booking 상태 업데이트 요청 (Service-to-Service)
-  // 결제 결과에 따라 BookingService에 알림
   try {
     if (isSuccessMock) {
       await bookingService.confirmBookingPayment(bookingId);
@@ -96,13 +112,13 @@ const executePayment = async (
     }
   } catch (bookingError) {
     // 결제는 성공했는데 Booking 상태 업데이트가 실패한 경우 (치명적 오류)
-    // 실제로는 여기서 재시도 큐(Queue)에 넣거나 알림을 보내야 합니다.
-    console.error(
-      `[CRITICAL] Payment success but Booking update failed: ${bookingError.message}`
+    logger.error(
+      "[PaymentService: CRITICAL]",
+      `Payment success but Booking update failed: ${bookingError.message}`,
+      { bookingId, paymentStatus: finalStatus }
     );
-  }
+  } // 7. 이벤트 기록
 
-  // 7. 이벤트 기록
   recordEvent(
     bookingId,
     isSuccessMock ? "PAYMENT_SUCCESS" : "PAYMENT_FAILURE",
@@ -129,16 +145,17 @@ const executePayment = async (
 const refundPayment = async (bookingId, userId) => {
   // 1. 결제 정보 조회 (Intent만)
   const intentData = await paymentRepository.getPaymentIntent(bookingId);
-  if (!intentData) throw new Error("PaymentIntent not found");
+  if (!intentData) throw new NotFoundError("PaymentIntent not found");
 
   if (intentData.status !== "SUCCESS") {
-    throw new Error("Refund is allowed only for SUCCESS payment status.");
+    throw new BadRequestError(
+      "Refund is allowed only for SUCCESS payment status."
+    );
   }
   if (intentData.userId !== userId) {
-    throw new Error("User mismatch for refund request.");
-  }
+    throw new UnauthorizedError("User mismatch for refund request.");
+  } // 2. Mock PG 환불
 
-  // 2. Mock PG 환불
   const pgRefundResult = await processMockRefund(bookingId);
   if (!pgRefundResult.success) {
     await recordEvent(
@@ -148,20 +165,17 @@ const refundPayment = async (bookingId, userId) => {
       "FAILED"
     );
     throw new Error("PG Refund Failed");
-  }
+  } // 3. DB 상태 업데이트 (PaymentIntent만)
 
-  // 3. DB 상태 업데이트 (PaymentIntent만)
-  await paymentRepository.updateIntentToRefunded(bookingId);
+  await paymentRepository.updateIntentToRefunded(bookingId); // 4. 이벤트 기록
 
-  // 4. 이벤트 기록
   await recordEvent(
     bookingId,
     "REFUND_SUCCESS",
     { refundId: pgRefundResult.refundId, amount: intentData.amount },
     "SUCCESS"
-  );
+  ); // 5. 결과 반환 (Booking 업데이트는 호출자가 수행함)
 
-  // 5. 결과 반환 (Booking 업데이트는 호출자가 수행함)
   return {
     success: true,
     refundId: pgRefundResult.refundId,
@@ -183,3 +197,26 @@ module.exports = {
   refundPayment,
   updateIntentStatusForCancellation,
 };
+
+// 현재 서비스 간의 강한 결합(순환 참조 우회) 문제를 근본적으로 해결하기 위해, 직접 호출 대신 이벤트 발행/구독 모델을 도입하는 작업입니다.
+
+// 1. ⚙️ Event Bus 구현 및 준비
+// utils/eventBus.js 파일을 만듭니다.
+
+// subscribe(eventName, handler) (리스너 등록)와 publish(eventName, data) (이벤트 발행 및 비동기 실행) 두 가지 기능만 가진 간단한 인메모리 메시지 버스를 구현합니다.
+
+// 2. 💸 Payment Service: 발행자 역할 수행
+// payment.service.js 파일에서 bookingService에 대한 모든 require를 제거합니다.
+
+// 결제 성공/실패 시 Booking Service 함수를 직접 호출하는 대신, Event Bus를 통해 다음 이벤트를 발행합니다.
+
+// 성공 시: eventBus.publish('payment.completed', { bookingId, ... })
+
+// 실패 시: eventBus.publish('payment.failed', { bookingId, ... })
+
+// 3. 🎫 Booking Service: 구독자 역할 수행
+// booking.service.js 파일에 initializeSubscribers(eventBus) 함수를 추가합니다.
+
+// 이 함수는 Event Bus를 받아 payment.completed 및 payment.failed 이벤트를 구독하고, 해당 이벤트 발생 시 기존의 confirmBookingPayment 또는 failBookingPayment 함수를 비동기적으로 실행하도록 연결합니다.
+
+// 앱 시작점에서 이 initializeSubscribers 함수를 호출하여 리스너를 활성화합니다.
