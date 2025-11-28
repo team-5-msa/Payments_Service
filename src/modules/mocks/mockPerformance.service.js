@@ -8,29 +8,40 @@ class HttpError extends Error {
 }
 
 // 공연 데이터를 저장하는 메모리 내 데이터베이스
-const mockDatabase = {};
+const PERFORMANCE_DATA = new Map();
 
 /**
- * 테스트를 위해 초기 데이터를 생성하는 헬퍼 함수 (Seed Data)
- * 서비스 로직 내부에서 자동 생성하지 않고, 명시적으로 생성할 때 사용
+ * [추가] Mock 데이터를 저장소를 완전히 비웁니다.
+ * 이 함수는 모든 테스트가 시작되기 전에 단 한 번만 호출되어야 합니다.
+ */
+const resetData = () => {
+  PERFORMANCE_DATA.clear();
+  console.log("[Mock Perf Service] All mock data has been reset.");
+};
+
+/**
+ * 특정 공연 ID로 Mock 데이터를 생성하고 Map에 저장합니다.
+ * ✨ [핵심 수정] 데이터가 이미 존재하면 아무것도 하지 않습니다. (Idempotent)
  */
 const seedPerformance = (performanceId) => {
-  if (!mockDatabase[performanceId]) {
-    mockDatabase[performanceId] = {
-      id: performanceId,
-      price: 50000,
-      stock: 100, // 초기 재고
-      initialStock: 100, // 최대 재고 검사를 위한 초기 값 저장
-      name: `Mock Performance: ${performanceId}`,
-      description: `Description of performance ${performanceId}`,
-      location: "Seoul",
-      date: "2025-12-01",
-    };
+  // ✨ 요청하신 대로, 데이터가 이미 Map에 존재하면 기존 데이터를 건드리지 않고 즉시 종료합니다.
+  if (PERFORMANCE_DATA.has(performanceId)) {
+    console.log(
+      `[Mock Perf Service] Already exists: ${performanceId}. Skipping seed.`
+    );
+    return;
   }
+
+  // 데이터가 없을 때만 새로 생성하여 저장합니다.
+  PERFORMANCE_DATA.set(performanceId, {
+    id: performanceId,
+    title: `Dynamic Mock Perf ${performanceId}`,
+    price: 50000,
+    availableTickets: 10, // 초기 재고 설정
+  });
   console.log(
-    `[Mock Seed] Performance ${performanceId} created with stock: ${mockDatabase[performanceId].stock}`
+    `[Mock Perf Service] Dynamically Created: ${performanceId} with 10 tickets.`
   );
-  return mockDatabase[performanceId];
 };
 
 // ❌ 파일 로드 시 즉시 실행되던 초기 시드 호출을 제거합니다.
@@ -38,25 +49,18 @@ const seedPerformance = (performanceId) => {
 // seedPerformance("PF-B002");
 
 /**
- * ID로 공연 정보를 조회합니다.
- * @param {string} performanceId - 조회할 공연의 ID
- * @returns {Promise} 공연 정보 객체
- * @throws {HttpError} 404 - 공연을 찾을 수 없음
+ * 공연 ID로 데이터를 조회합니다. (getPerformanceById, reserveTickets, cancelTickets 등 유지)
+ * ...
  */
 const getPerformanceById = async (performanceId) => {
-  console.log(
-    `[Mock Performance Service] Fetching data for ID: ${performanceId}`
-  );
-
-  const performance = mockDatabase[performanceId]; // [예외 처리] 데이터가 없는 경우 404 반환
-
-  if (!performance) {
-    return Promise.reject(
-      new HttpError(404, `Performance '${performanceId}' not found.`)
-    );
+  const data = PERFORMANCE_DATA.get(performanceId);
+  if (!data) {
+    // 데이터가 없으면 에러 발생 (이전과 동일)
+    const error = new Error(`Performance '${performanceId}' not found.`);
+    error.status = 404;
+    throw error;
   }
-
-  return Promise.resolve(performance);
+  return data;
 };
 
 /**
@@ -68,6 +72,7 @@ const getPerformanceById = async (performanceId) => {
  * @throws {HttpError} 409 - 재고 부족
  * @throws {HttpError} 400 - 잘못된 수량
  */
+
 const reserveTickets = async (performanceId, quantity) => {
   const performance = mockDatabase[performanceId]; // [예외 처리] 1. 공연 ID가 존재하지 않는 경우 (404)
 
@@ -145,5 +150,6 @@ module.exports = {
   getPerformanceById,
   reserveTickets,
   cancelTickets,
-  seedPerformance, // 테스트 데이터 생성이 필요할 때 사용
+  seedPerformance,
+  resetData,
 };

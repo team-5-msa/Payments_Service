@@ -35,7 +35,7 @@ const createBooking = async (
   quantity,
   paymentMethod
 ) => {
-  performanceService.seedPerformance(performanceId);
+  performanceService.seedPerformance(performanceId); // Mock 데이터 시드 생성
 
   // 1. 기존 예매 수량 확인
   const existingTickets = await bookingRepository.getActiveTicketCount(
