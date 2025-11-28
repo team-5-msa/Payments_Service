@@ -37,7 +37,9 @@ const seedPerformance = (performanceId) => {
     id: performanceId,
     title: `Dynamic Mock Perf ${performanceId}`,
     price: 50000,
-    availableTickets: 10, // 초기 재고 설정
+    stock: 10, // 현재 재고
+    initialStock: 10, // 초기(최대) 재고
+    availableTickets: 10, // 이전 코드와의 호환성
   });
   console.log(
     `[Mock Perf Service] Dynamically Created: ${performanceId} with 10 tickets.`
@@ -74,19 +76,19 @@ const getPerformanceById = async (performanceId) => {
  */
 
 const reserveTickets = async (performanceId, quantity) => {
-  const performance = mockDatabase[performanceId]; // [예외 처리] 1. 공연 ID가 존재하지 않는 경우 (404)
+  const performance = PERFORMANCE_DATA.get(performanceId);
 
   if (!performance) {
     return Promise.reject(
       new HttpError(404, `Performance '${performanceId}' not found.`)
     );
-  } // [예외 처리] 2. 요청 수량이 유효하지 않은 경우 (400 - Bad Request)
+  }
 
   if (quantity <= 0) {
     return Promise.reject(
       new HttpError(400, "Ticket quantity must be greater than 0.")
     );
-  } // [예외 처리] 3. 재고가 부족한 경우 (409 - Conflict)
+  }
 
   if (performance.stock < quantity) {
     console.warn(
@@ -95,9 +97,11 @@ const reserveTickets = async (performanceId, quantity) => {
     return Promise.reject(
       new HttpError(409, "재고가 부족합니다. 예매할 수 없습니다.")
     );
-  } // 정상 처리: 재고 감소
+  }
 
+  // 정상 처리: 재고 감소
   performance.stock -= quantity;
+  performance.availableTickets = performance.stock;
   console.log(
     `[Mock Performance Service] Reserved tickets for ID: ${performanceId}, tickets reserved: ${quantity}, new stock: ${performance.stock}`
   );
@@ -114,19 +118,19 @@ const reserveTickets = async (performanceId, quantity) => {
  * @throws {HttpError} 400 - 잘못된 수량
  */
 const cancelTickets = async (performanceId, quantity) => {
-  const performance = mockDatabase[performanceId]; // [예외 처리] 1. 공연 ID가 존재하지 않는 경우 (404)
+  const performance = PERFORMANCE_DATA.get(performanceId);
 
   if (!performance) {
     return Promise.reject(
       new HttpError(404, `Performance '${performanceId}' not found.`)
     );
-  } // [예외 처리] 2. 요청 수량이 유효하지 않은 경우 (400)
+  }
 
   if (quantity <= 0) {
     return Promise.reject(
       new HttpError(400, "Cancellation quantity must be greater than 0.")
     );
-  } // 재고가 초기 재고(initialStock)를 초과하는지 확인 (400)
+  }
 
   if (performance.stock + quantity > performance.initialStock) {
     const excess = performance.stock + quantity - performance.initialStock;
@@ -136,9 +140,11 @@ const cancelTickets = async (performanceId, quantity) => {
         `Cancellation quantity (${quantity}) exceeds the maximum stock limit (${performance.initialStock}). Excess refund request: ${excess}`
       )
     );
-  } // 정상 처리: 재고 증가 (취소/환불)
+  }
 
+  // 정상 처리: 재고 증가 (취소/환불)
   performance.stock += quantity;
+  performance.availableTickets = performance.stock;
   console.log(
     `[Mock Performance Service] Cancelled tickets for ID: ${performanceId}, tickets refunded: ${quantity}, new stock: ${performance.stock}`
   );
