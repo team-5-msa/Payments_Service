@@ -1,4 +1,5 @@
 const { db, admin } = require("../../config/firebase");
+const { createLedgerEntries } = require("./payment.helper");
 
 /**
  * 결제 의향(PaymentIntent) 생성
@@ -25,32 +26,6 @@ const createIntent = async (
 };
 
 /**
- * 회계 원장 생성 (Internal Helper)
- */
-const createLedgerEntries = (t, bookingId, amount) => {
-  const ledgerRef = db.collection("ledgerEntries");
-  const timestamp = admin.firestore.FieldValue.serverTimestamp();
-
-  const debitEntry = ledgerRef.doc();
-  t.set(debitEntry, {
-    bookingId,
-    account: "CUSTOMER_PAYABLE",
-    type: "DEBIT",
-    amount,
-    createdAt: timestamp,
-  });
-
-  const creditEntry = ledgerRef.doc();
-  t.set(creditEntry, {
-    bookingId,
-    account: "MERCHANT_BALANCE",
-    type: "CREDIT",
-    amount,
-    createdAt: timestamp,
-  });
-};
-
-/**
  * 단순 상태 업데이트 (Non-Transaction)
  */
 const updateIntentStatusNonTx = async (bookingId, status) => {
@@ -63,48 +38,33 @@ const updateIntentStatusNonTx = async (bookingId, status) => {
 };
 
 /**
- * 데이터 조회용 (Intent & Booking)
+ * ✨ [변경] 결제 의향 정보만 조회 (Booking 정보 조회 제거)
  */
-const getIntentAndBooking = async (bookingId) => {
+const getPaymentIntent = async (bookingId) => {
   const intentRef = db.collection("paymentIntents").doc(bookingId);
-  const bookingRef = db.collection("bookings").doc(bookingId);
+  const intentDoc = await intentRef.get();
 
-  const [intentDoc, bookingDoc] = await Promise.all([
-    intentRef.get(),
-    bookingRef.get(),
-  ]);
-
-  return {
-    intentData: intentDoc.exists ? intentDoc.data() : null,
-    bookingData: bookingDoc.exists ? bookingDoc.data() : null,
-  };
+  return intentDoc.exists ? intentDoc.data() : null;
 };
 
 /**
  * [Transaction] 결제 실행 결과 반영
- * Service에서 DB 트랜잭션을 직접 다루지 않도록 캡슐화함
+ * ✨ [변경] Booking 상태 업데이트 제거 (오직 PaymentIntent와 원장만 처리)
  */
 const completePaymentTransaction = async (
   bookingId,
-  finalStatus, // PaymentIntent status (SUCCESS/FAILURE)
-  bookingFinalStatus, // Booking status (PAID/PAYMENT_FAILED)
+  finalStatus,
   pgData,
   amount,
   isSuccessMock
 ) => {
   await db.runTransaction(async (t) => {
     const intentRef = db.collection("paymentIntents").doc(bookingId);
-    const bookingRef = db.collection("bookings").doc(bookingId);
 
-    // 상태 업데이트
+    // PaymentIntent 업데이트
     t.update(intentRef, {
       status: finalStatus,
       pgData,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    t.update(bookingRef, {
-      status: bookingFinalStatus,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -118,30 +78,22 @@ const completePaymentTransaction = async (
 /**
  * [Transaction] 환불 처리 반영
  */
-const completeRefundTransaction = async (bookingId) => {
+const updateIntentToRefunded = async (bookingId) => {
   await db.runTransaction(async (t) => {
     const intentRef = db.collection("paymentIntents").doc(bookingId);
-    const bookingRef = db.collection("bookings").doc(bookingId);
 
-    // Intent 상태 변경
+    // Intent 상태만 변경
     t.update(intentRef, {
-      status: "REFUNDED",
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    // Booking 상태 변경
-    t.update(bookingRef, {
       status: "REFUNDED",
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   });
 };
 
-// ✨ 깔끔해진 exports
 module.exports = {
   createIntent,
   updateIntentStatusNonTx,
-  getIntentAndBooking,
+  getPaymentIntent, // 이름 변경됨
   completePaymentTransaction,
-  completeRefundTransaction,
+  updateIntentToRefunded,
 };

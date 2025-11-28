@@ -2,7 +2,7 @@ const express = require("express");
 const logger = require("morgan");
 const cron = require("node-cron");
 const { db } = require("./config/firebase");
-const updateBookingStatusFromEvents = require("./utils/updateBookingStatus");
+const updateBookingStatusFromEvents = require("./scheduler/updateBookingStatus");
 
 // 라우터 파일 import
 const bookingRouter = require("./routes/booking.routes");
@@ -15,11 +15,11 @@ app.use(logger("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// [핵심] 각 경로에 맞는 라우터를 정확히 연결
+// 라우터 설정
 app.use("/bookings", bookingRouter);
 app.use("/payments", paymentRouter);
 
-// ✨ 배치 작업 초기화 (node-cron)
+// 배치 작업 초기화 (node-cron)
 cron.schedule("0 0 * * *", () => updateBookingStatusFromEvents()); // 자정마다 실행
 
 // 404 에러 핸들러

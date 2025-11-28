@@ -1,6 +1,10 @@
 const { db } = require("../../config/firebase");
 const bookingService = require("./booking.service");
-const scheduleBookingExpiration = require("../../utils/scheduleBookingExpiration");
+const {
+  BadRequestError,
+  UnauthorizedError,
+} = require("../../utils/errorHandler");
+const logger = require("../../utils/logger");
 
 /**
  * 1. 예매 생성 API
@@ -11,20 +15,13 @@ const createBooking = async (req, res) => {
     const userId = req.headers["x-user-id"];
     const { performanceId, quantity, paymentMethod } = req.body;
 
-    // --- [디버깅 로그 1] ---
-    console.log("--- 1. API: /bookings (CREATE) ---");
-    console.log("Request Body:", req.body);
-    console.log("User ID:", userId);
-    // -------------------------
-    console.log("이거나오면깃업로드하면자동으로업데이트하는거임");
-
     if (!userId)
-      return res.status(401).send({ error: "User identification is missing." });
+      throw new UnauthorizedError("User identification is missing in headers.");
     if (!performanceId || !quantity || !paymentMethod)
-      return res.status(400).send({
-        error: "performanceId, quantity, paymentMethod are required.",
-      });
-
+      throw new BadRequestError(
+        "performanceId, quantity, paymentMethod are required."
+      );
+    // Service 호출
     const result = await bookingService.createBooking(
       userId,
       performanceId,
@@ -32,22 +29,13 @@ const createBooking = async (req, res) => {
       paymentMethod
     );
 
-    // --- [scheduleBookingExpiration 호출] ---
-    const bookingDoc = await db
-      .collection("bookings")
-      .doc(result.bookingId)
-      .get();
-    console.log(`[Debug] Created booking with ID ${result.bookingId}`);
-    await scheduleBookingExpiration(bookingDoc);
-    // ---------------------------------------------
-
     res.status(201).send({
       message:
         "Booking and payment intent created. Please proceed to payment execution.",
       ...result,
     });
   } catch (error) {
-    console.error("[Controller Error: createBooking]", error);
+    logger.exception("[BookingController:createBooking]", error);
     res.status(error.status || 500).send({ error: error.message });
   }
 };
@@ -67,6 +55,7 @@ const getMyBookings = async (req, res) => {
     const bookings = await bookingService.getMyBookings(userId);
     res.status(200).send(bookings);
   } catch (error) {
+    logger.exception("[BookingController:getMyBookings]", error);
     res.status(error.status || 500).send({ error: error.message });
   }
 };
@@ -91,6 +80,7 @@ const cancelBooking = async (req, res) => {
     const result = await bookingService.cancelBooking(userId, bookingId);
     res.status(200).send(result);
   } catch (error) {
+    logger.exception("[BookingController:cancelBooking]", error);
     res.status(error.status || 500).send({ error: error.message });
   }
 };
