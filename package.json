@@ -12,10 +12,12 @@
     "dotenv": "^17.2.3",
     "express": "~4.16.1",
     "firebase-admin": "^13.6.0",
+    "joi": "^18.0.2",
     "moment": "^2.30.1",
     "moment-timezone": "^0.6.0",
     "morgan": "~1.9.1",
-    "node-cron": "^4.2.1"
+    "node-cron": "^4.2.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@flydotio/dockerfile": "^0.7.10",

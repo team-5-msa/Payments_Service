@@ -22,6 +22,15 @@ app.use("/payments", paymentRouter);
 // 배치 작업 초기화 (node-cron)
 cron.schedule("0 0 * * *", () => updateBookingStatusFromEvents()); // 자정마다 실행
 
+// 이벤트 버스 및 구독자 초기화 추가
+const eventBus = require("./utils/eventBus");
+const initBookingSubscribers = require("./modules/booking/booking.subscriber");
+const initPaymentSubscribers = require("./modules/payment/payment.subscriber");
+
+// 구독자 초기화
+initBookingSubscribers();
+initPaymentSubscribers();
+
 // 404 에러 핸들러
 app.use((req, res, next) => {
   const err = new Error("Not Found");

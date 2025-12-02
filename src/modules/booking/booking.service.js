@@ -1,7 +1,6 @@
 // booking.service.js (performanceService와 에러 핸들링을 동기화)
 
 const bookingRepository = require("./booking.repository");
-const paymentService = require("../payment/payment.service");
 const performanceService = require("../mocks/mockPerformance.service"); // Mock Performance Service
 const scheduleBookingExpiration = require("./booking.helper");
 const {
@@ -11,6 +10,7 @@ const {
   BadRequestError,
 } = require("../../utils/errorHandler");
 const logger = require("../../utils/logger");
+const eventBus = require("../../utils/eventBus");
 
 // ✨ 예매 한도 상수
 const MAX_TICKETS_PER_USER = 10;
@@ -80,14 +80,14 @@ const createBooking = async (
     // 6. 재고 차감
     await performanceService.reserveTickets(performanceId, quantity);
 
-    // 7. 결제 의향 생성
-    await paymentService.createPaymentIntent(
+    // 7. 결제 의향 생성 이벤트 발행
+    eventBus.publish("BOOKING_CREATED", {
       bookingId,
       userId,
       totalAmount,
       paymentMethod,
-      performanceId
-    );
+      performanceId,
+    });
 
     return { bookingId, totalAmount };
   } catch (error) {
@@ -128,15 +128,12 @@ const cancelBooking = async (userId, bookingId) => {
     throw new UnauthorizedError("Booking not owned by user.");
   }
 
-  // Case A: 결제 전 (PENDING) -> 단순 취소
   if (booking.status === "PENDING") {
-    // 1. Booking 상태 취소
     await updateBookingStatus(bookingId, "CANCELLED");
 
-    // 2. PaymentIntent 상태 취소 요청 (PaymentService에 위임)
-    await paymentService.updateIntentStatusForCancellation(bookingId);
+    // 결제 취소 이벤트 발행
+    eventBus.publish("BOOKING_CANCELLED", { bookingId });
 
-    // 3. 재고 복구
     await performanceService.cancelTickets(
       booking.performanceId,
       booking.quantity
@@ -145,33 +142,17 @@ const cancelBooking = async (userId, bookingId) => {
     return { message: "Booking cancelled successfully before payment." };
   }
 
-  // Case B: 결제 완료 (PAID) -> 환불 프로세스
   if (booking.status === "PAID") {
     logger.info(
       "[BookingService]",
       `Initiating refund for Booking ${bookingId}`
     );
 
-    // 1. PaymentService에 환불 요청 (금융 처리 위임)
-    // 이제 refundPayment는 Booking 상태를 건드리지 않고 결과만 반환합니다.
-    const refundResult = await paymentService.refundPayment(bookingId, userId);
-
-    // 2. 환불 성공 시, BookingService가 자신의 상태를 업데이트 (책임 회수)
-    if (refundResult.success) {
-      await updateBookingStatus(bookingId, "REFUNDED"); // 혹은 CANCELLED
-
-      // 3. 재고 복구 (BookingService의 책임)
-      await performanceService.cancelTickets(
-        booking.performanceId,
-        booking.quantity
-      );
-
-      logger.info("[BookingService]", `Refund complete. Stock restored.`);
-    }
+    // 환불 요청 이벤트 발행
+    eventBus.publish("REFUND_REQUESTED", { bookingId, userId });
 
     return {
-      message: "Booking refunded successfully.",
-      refundId: refundResult.refundId,
+      message: "Refund process initiated.",
     };
   }
 
@@ -179,32 +160,86 @@ const cancelBooking = async (userId, bookingId) => {
 };
 
 /**
- * 결제 전 Booking이 유효한지 검증 (PaymentService가 호출)
+ * 환불 완료 처리 (Subscriber가 호출)
  */
-const validateBookingForPayment = async (bookingId, userId) => {
+const completeBookingRefund = async (bookingId) => {
   const booking = await bookingRepository.getBookingById(bookingId);
-  if (!booking) throw new NotFoundError("Booking not found");
-  if (booking.userId !== userId) throw new UnauthorizedError("User mismatch");
-  if (booking.status !== "PENDING")
-    throw new BadRequestError("Booking is not pending");
+  if (!booking) {
+    logger.error(
+      `[BookingService] Booking ${bookingId} not found for refund completion.`
+    );
+    return;
+  }
 
-  return booking;
+  // Idempotency Check
+  if (booking.status === "REFUNDED") {
+    logger.info(
+      `[BookingService] Booking ${bookingId} is already REFUNDED. Skipping.`
+    );
+    return;
+  }
+
+  await updateBookingStatus(bookingId, "REFUNDED");
+  await performanceService.cancelTickets(
+    booking.performanceId,
+    booking.quantity
+  );
+  logger.info(
+    `[BookingService] Booking ${bookingId} refunded and stock restored.`
+  );
 };
 
 /**
  * 결제 성공 시 Booking 상태 확정 (PaymentService가 호출)
  */
 const confirmBookingPayment = async (bookingId) => {
+  const booking = await bookingRepository.getBookingById(bookingId);
+  if (!booking) return;
+
+  // Idempotency Check
+  if (booking.status === "PAID") {
+    logger.info(
+      `[BookingService] Booking ${bookingId} is already PAID. Skipping.`
+    );
+    return;
+  }
+
+  if (booking.status === "CANCELLED") {
+    logger.warn(
+      `[BookingService] Received PAYMENT_COMPLETED for CANCELLED booking ${bookingId}. Requesting refund.`
+    );
+    eventBus.publish("REFUND_REQUESTED", { bookingId, userId: booking.userId });
+    return;
+  }
+
   await updateBookingStatus(bookingId, "PAID");
-  console.log(`[BookingService] Booking ${bookingId} confirmed as PAID.`);
+  logger.info(`[BookingService] Booking ${bookingId} confirmed as PAID.`);
 };
 
 /**
  * 결제 실패 시 Booking 상태 처리 (PaymentService가 호출)
  */
 const failBookingPayment = async (bookingId) => {
+  const booking = await bookingRepository.getBookingById(bookingId);
+  if (!booking) return;
+
+  // Idempotency Check
+  if (booking.status === "PAYMENT_FAILED") {
+    logger.info(
+      `[BookingService] Booking ${bookingId} is already marked as PAYMENT_FAILED. Skipping.`
+    );
+    return;
+  }
+
+  if (booking.status === "CANCELLED") {
+    logger.info(
+      `[BookingService] Received PAYMENT_FAILED for CANCELLED booking ${bookingId}. Ignoring.`
+    );
+    return;
+  }
+
   await updateBookingStatus(bookingId, "PAYMENT_FAILED");
-  console.log(
+  logger.info(
     `[BookingService] Booking ${bookingId} marked as PAYMENT_FAILED.`
   );
 };
@@ -213,7 +248,7 @@ module.exports = {
   createBooking,
   getMyBookings,
   cancelBooking,
-  validateBookingForPayment,
+  completeBookingRefund,
   confirmBookingPayment,
   failBookingPayment,
 };
