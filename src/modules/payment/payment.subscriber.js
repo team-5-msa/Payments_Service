@@ -51,20 +51,23 @@ const initPaymentSubscribers = () => {
   });
 
   // 환불 요청 이벤트 구독 -> 환불 처리
-  eventBus.subscribe("REFUND_REQUESTED", async ({ bookingId, userId }) => {
-    logger.info(
-      "[PaymentSubscriber]",
-      `Received REFUND_REQUESTED for ${bookingId}`
-    );
-    try {
-      await paymentService.refundPayment(bookingId, userId);
-    } catch (error) {
-      logger.error(
+  eventBus.subscribe(
+    "REFUND_REQUESTED",
+    async ({ bookingId, userId, token }) => {
+      logger.info(
         "[PaymentSubscriber]",
-        `Failed to process refund for ${bookingId}: ${error.message}`
+        `Received REFUND_REQUESTED for ${bookingId}`
       );
+      try {
+        await paymentService.refundPayment(bookingId, userId, token);
+      } catch (error) {
+        logger.error(
+          "[PaymentSubscriber]",
+          `Failed to process refund for ${bookingId}: ${error.message}`
+        );
+      }
     }
-  });
+  );
 };
 
 module.exports = initPaymentSubscribers;

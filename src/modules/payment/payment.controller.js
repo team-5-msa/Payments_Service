@@ -7,7 +7,8 @@ const paymentService = require("./payment.service");
  */
 const executePayment = async (req, res) => {
   try {
-    const userId = req.headers["x-user-id"];
+    // authMiddleware를 통해 req.user에 사용자 정보가 설정됨
+    const { id: userId, token } = req.user || {};
     const { bookingId, paymentMethodToken, cardNumber, cvv } = req.body;
 
     if (!userId)
@@ -22,7 +23,8 @@ const executePayment = async (req, res) => {
       bookingId,
       paymentMethodToken,
       cardNumber,
-      cvv
+      cvv,
+      token
     );
 
     res.status(200).send({

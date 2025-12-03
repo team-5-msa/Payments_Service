@@ -7,6 +7,7 @@ const updateBookingStatusFromEvents = require("./scheduler/updateBookingStatus")
 // 라우터 파일 import
 const bookingRouter = require("./routes/booking.routes");
 const paymentRouter = require("./routes/payment.routes");
+const authMiddleware = require("./middlewares/authMiddleware");
 
 const app = express();
 
@@ -16,8 +17,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // 라우터 설정
-app.use("/bookings", bookingRouter);
-app.use("/payments", paymentRouter);
+app.use("/booking", authMiddleware, bookingRouter);
+app.use("/payment", authMiddleware, paymentRouter);
 
 // 배치 작업 초기화 (node-cron)
 cron.schedule("0 0 * * *", () => updateBookingStatusFromEvents()); // 자정마다 실행

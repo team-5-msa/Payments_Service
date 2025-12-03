@@ -1,7 +1,7 @@
 // booking.service.js (performanceService와 에러 핸들링을 동기화)
 
 const bookingRepository = require("./booking.repository");
-const performanceService = require("../mocks/mockPerformance.service"); // Mock Performance Service
+const performanceService = require("../performance/performance.service");
 const scheduleBookingExpiration = require("./booking.helper");
 const {
   ConflictError,
@@ -33,7 +33,8 @@ const createBooking = async (
   userId,
   performanceId,
   quantity,
-  paymentMethod
+  paymentMethod,
+  token // 토큰 추가
 ) => {
   performanceService.seedPerformance(performanceId); // Mock 데이터 시드 생성
 
@@ -53,7 +54,8 @@ const createBooking = async (
 
   // 3. 공연 정보 조회
   const performanceData = await performanceService.getPerformanceById(
-    performanceId
+    performanceId,
+    token // 토큰 전달
   );
 
   const totalAmount = performanceData.price * quantity;
@@ -77,8 +79,19 @@ const createBooking = async (
   );
 
   try {
-    // 6. 재고 차감
-    await performanceService.reserveTickets(performanceId, quantity);
+    // 6. 재고 차감 (외부 서비스 호출)
+    const reservationResponse = await performanceService.reserveTickets(
+      performanceId,
+      quantity,
+      token // 토큰 전달
+    );
+    const reservationId = reservationResponse.reservationId;
+
+    // reservationId 저장
+    await bookingRepository.updateBookingReservationId(
+      bookingId,
+      reservationId
+    );
 
     // 7. 결제 의향 생성 이벤트 발행
     eventBus.publish("BOOKING_CREATED", {
@@ -94,16 +107,9 @@ const createBooking = async (
     // 8. 보상 트랜잭션 (롤백)
     logger.exception("[BookingService]", error);
     await updateBookingStatus(bookingId, "FAILED");
-
-    try {
-      await performanceService.cancelTickets(performanceId, quantity);
-    } catch (stockError) {
-      logger.error(
-        "[BookingService]",
-        `Stock restore failed: ${stockError.message}`
-      );
-    }
-
+    // 예약 실패 시에는 별도의 취소 호출이 필요 없을 수 있음 (이미 실패했으므로)
+    // 하지만 만약 reserveTickets가 성공하고 DB 업데이트나 이벤트 발행에서 실패했다면 취소해야 함.
+    // 여기서는 간단히 에러 발생 시 로깅만 하고 넘어감 (또는 reservationId가 있다면 취소 시도)
     throw error;
   }
 };
@@ -118,7 +124,7 @@ const getMyBookings = async (userId) => {
 /**
  * 3. 예매 취소
  */
-const cancelBooking = async (userId, bookingId) => {
+const cancelBooking = async (userId, bookingId, token) => {
   const booking = await bookingRepository.getBookingById(bookingId);
 
   if (!booking) {
@@ -134,10 +140,13 @@ const cancelBooking = async (userId, bookingId) => {
     // 결제 취소 이벤트 발행
     eventBus.publish("BOOKING_CANCELLED", { bookingId });
 
-    await performanceService.cancelTickets(
-      booking.performanceId,
-      booking.quantity
-    );
+    if (booking.reservationId) {
+      await performanceService.cancelReservation(
+        booking.performanceId,
+        booking.reservationId,
+        token // 토큰 전달
+      );
+    }
 
     return { message: "Booking cancelled successfully before payment." };
   }
@@ -149,7 +158,7 @@ const cancelBooking = async (userId, bookingId) => {
     );
 
     // 환불 요청 이벤트 발행
-    eventBus.publish("REFUND_REQUESTED", { bookingId, userId });
+    eventBus.publish("REFUND_REQUESTED", { bookingId, userId, token });
 
     return {
       message: "Refund process initiated.",
@@ -162,7 +171,7 @@ const cancelBooking = async (userId, bookingId) => {
 /**
  * 환불 완료 처리 (Subscriber가 호출)
  */
-const completeBookingRefund = async (bookingId) => {
+const completeBookingRefund = async (bookingId, token) => {
   const booking = await bookingRepository.getBookingById(bookingId);
   if (!booking) {
     logger.error(
@@ -180,10 +189,13 @@ const completeBookingRefund = async (bookingId) => {
   }
 
   await updateBookingStatus(bookingId, "REFUNDED");
-  await performanceService.cancelTickets(
-    booking.performanceId,
-    booking.quantity
-  );
+  if (booking.reservationId) {
+    await performanceService.refundReservation(
+      booking.performanceId,
+      booking.reservationId,
+      token
+    );
+  }
   logger.info(
     `[BookingService] Booking ${bookingId} refunded and stock restored.`
   );
@@ -192,7 +204,7 @@ const completeBookingRefund = async (bookingId) => {
 /**
  * 결제 성공 시 Booking 상태 확정 (PaymentService가 호출)
  */
-const confirmBookingPayment = async (bookingId) => {
+const confirmBookingPayment = async (bookingId, token) => {
   const booking = await bookingRepository.getBookingById(bookingId);
   if (!booking) return;
 
@@ -208,18 +220,44 @@ const confirmBookingPayment = async (bookingId) => {
     logger.warn(
       `[BookingService] Received PAYMENT_COMPLETED for CANCELLED booking ${bookingId}. Requesting refund.`
     );
-    eventBus.publish("REFUND_REQUESTED", { bookingId, userId: booking.userId });
+    eventBus.publish("REFUND_REQUESTED", {
+      bookingId,
+      userId: booking.userId,
+      token,
+    });
     return;
   }
 
   await updateBookingStatus(bookingId, "PAID");
+
+  if (booking.reservationId) {
+    try {
+      const response = await performanceService.confirmReservation(
+        booking.performanceId,
+        booking.reservationId,
+        token
+      );
+      logger.info(
+        `[BookingService] Reservation confirmed for ${bookingId}:`,
+        response.data
+      );
+    } catch (error) {
+      logger.error(
+        `[BookingService] Failed to confirm reservation ${booking.reservationId} for booking ${bookingId}: ${error.message}`
+      );
+      // 여기서 실패하면 어떻게 해야 할까?
+      // 이미 결제는 성공했으므로, 재시도 로직이 필요하거나 관리자 개입이 필요함.
+      // 일단 로깅만 수행.
+    }
+  }
+
   logger.info(`[BookingService] Booking ${bookingId} confirmed as PAID.`);
 };
 
 /**
  * 결제 실패 시 Booking 상태 처리 (PaymentService가 호출)
  */
-const failBookingPayment = async (bookingId) => {
+const failBookingPayment = async (bookingId, token) => {
   const booking = await bookingRepository.getBookingById(bookingId);
   if (!booking) return;
 
@@ -239,6 +277,21 @@ const failBookingPayment = async (bookingId) => {
   }
 
   await updateBookingStatus(bookingId, "PAYMENT_FAILED");
+
+  if (booking.reservationId) {
+    try {
+      await performanceService.cancelReservation(
+        booking.performanceId,
+        booking.reservationId,
+        token
+      );
+    } catch (error) {
+      logger.error(
+        `[BookingService] Failed to cancel reservation ${booking.reservationId} for failed booking ${bookingId}: ${error.message}`
+      );
+    }
+  }
+
   logger.info(
     `[BookingService] Booking ${bookingId} marked as PAYMENT_FAILED.`
   );

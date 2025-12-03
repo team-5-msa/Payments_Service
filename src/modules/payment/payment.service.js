@@ -61,7 +61,8 @@ const executePayment = async (
   bookingId,
   paymentMethodToken,
   cardNumber,
-  cvv
+  cvv,
+  token // 토큰 추가
 ) => {
   if (!bookingId || !paymentMethodToken || !cvv) {
     throw new BadRequestError("Missing bookingId, token, or cvv");
@@ -105,9 +106,9 @@ const executePayment = async (
   ); // 6. 결제 성공/실패 이벤트 발행
 
   if (isSuccessMock) {
-    eventBus.publish("PAYMENT_COMPLETED", { bookingId });
+    eventBus.publish("PAYMENT_COMPLETED", { bookingId, token });
   } else {
-    eventBus.publish("PAYMENT_FAILED", { bookingId });
+    eventBus.publish("PAYMENT_FAILED", { bookingId, token });
   } // 7. 이벤트 기록
 
   recordEvent(
@@ -133,7 +134,7 @@ const executePayment = async (
 /**
  * 환불 처리
  */
-const refundPayment = async (bookingId, userId) => {
+const refundPayment = async (bookingId, userId, token) => {
   // 1. 결제 정보 조회 (Intent만)
   const intentData = await paymentRepository.getPaymentIntent(bookingId);
   if (!intentData) throw new NotFoundError("PaymentIntent not found");
@@ -159,7 +160,7 @@ const refundPayment = async (bookingId, userId) => {
   } // 3. DB 상태 업데이트 (PaymentIntent만)
 
   await paymentRepository.updateIntentToRefunded(bookingId); // 4. 환불 완료 이벤트 발행
-  eventBus.publish("REFUND_COMPLETED", { bookingId });
+  eventBus.publish("REFUND_COMPLETED", { bookingId, token });
 
   // 5. 이벤트 기록
   await recordEvent(

@@ -12,11 +12,13 @@ const logger = require("../../utils/logger");
  */
 const createBooking = async (req, res) => {
   try {
-    const userId = req.headers["x-user-id"];
+    // authMiddleware에서 처리된 사용자 정보와 토큰을 한 번에 가져옴
+    const { id: userId, token } = req.user || {};
     const { performanceId, quantity, paymentMethod } = req.body;
 
-    if (!userId)
-      throw new UnauthorizedError("User identification is missing in headers.");
+    if (!userId) throw new UnauthorizedError("User identification is missing.");
+    if (!token) throw new UnauthorizedError("Authorization token is missing.");
+
     if (!performanceId || !quantity || !paymentMethod)
       throw new BadRequestError(
         "performanceId, quantity, paymentMethod are required."
@@ -26,7 +28,8 @@ const createBooking = async (req, res) => {
       userId,
       performanceId,
       quantity,
-      paymentMethod
+      paymentMethod,
+      token
     );
 
     res.status(201).send({
@@ -45,11 +48,9 @@ const createBooking = async (req, res) => {
  */
 const getMyBookings = async (req, res) => {
   try {
-    const userId = req.headers["x-user-id"];
+    const userId = req.user ? req.user.id : null;
     if (!userId) {
-      return res
-        .status(401)
-        .send({ error: "User identification is missing in headers." });
+      return res.status(401).send({ error: "User identification is missing." });
     }
 
     const bookings = await bookingService.getMyBookings(userId);
@@ -66,7 +67,7 @@ const getMyBookings = async (req, res) => {
  */
 const cancelBooking = async (req, res) => {
   try {
-    const userId = req.headers["x-user-id"];
+    const { id: userId, token } = req.user || {};
     const { bookingId } = req.body;
 
     // 1. 필수 입력값 검증
@@ -77,7 +78,7 @@ const cancelBooking = async (req, res) => {
     }
 
     // 2. 예매 취소 서비스 호출
-    const result = await bookingService.cancelBooking(userId, bookingId);
+    const result = await bookingService.cancelBooking(userId, bookingId, token);
     res.status(200).send(result);
   } catch (error) {
     logger.exception("[BookingController:cancelBooking]", error);

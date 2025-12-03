@@ -69,6 +69,22 @@ const updateBookingStatus = async (bookingId, status) => {
 };
 
 /**
+ * 예매 문서에 외부 서비스의 reservationId를 업데이트합니다.
+ */
+const updateBookingReservationId = async (bookingId, reservationId) => {
+  const bookingRef = db.collection("bookings").doc(bookingId);
+
+  await bookingRef.update({
+    reservationId: reservationId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  console.log(
+    `[Booking ReservationId Updated] Booking ID: ${bookingId}, Reservation ID: ${reservationId}`
+  );
+};
+
+/**
  *  특정 사용자가 특정 공연에 대해 'PAID' 상태로 구매한 총 티켓 수를 조회합니다.
  */
 // booking.repository.js (수정된 로직)
@@ -110,5 +126,6 @@ module.exports = {
   getMyBookings,
   getBookingById,
   updateBookingStatus,
+  updateBookingReservationId,
   getActiveTicketCount,
 };
