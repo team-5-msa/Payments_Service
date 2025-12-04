@@ -5,7 +5,11 @@ const {
   processMockRefund,
 } = require("../mocks/PGprocess.mock");
 const logger = require("../../utils/logger");
-const { NotFoundError, BadRequestError } = require("../../utils/errorHandler"); // 에러 처리 추가
+const {
+  NotFoundError,
+  BadRequestError,
+  UnauthorizedError,
+} = require("../../utils/errorHandler"); // 에러 처리 추가
 const eventBus = require("../../utils/eventBus"); // 이벤트 버스 추가
 
 /**
@@ -50,7 +54,12 @@ const createPaymentIntent = async (
   );
 
   logger.info("[PaymentService]", `Intent created for booking: ${bookingId}`);
-  return { message: "Payment intent successfully created.", bookingId };
+  return {
+    message: "Payment intent successfully created.",
+    bookingId,
+    totalAmount: amount,
+    paymentIntentId: bookingId,
+  };
 };
 
 /**
@@ -62,7 +71,7 @@ const executePayment = async (
   paymentMethodToken,
   cardNumber,
   cvv,
-  token // 토큰 추가
+  token
 ) => {
   if (!bookingId || !paymentMethodToken || !cvv) {
     throw new BadRequestError("Missing bookingId, token, or cvv");
@@ -74,7 +83,11 @@ const executePayment = async (
   ); // 1. PaymentIntent 조회 (Booking 정보는 조회하지 않음)
 
   const intentData = await paymentRepository.getPaymentIntent(bookingId);
-  if (!intentData) throw new NotFoundError("Payment intent not found"); // 2. 상태 검증
+  if (!intentData) {
+    throw new NotFoundError(
+      `Payment intent not found for bookingId: ${bookingId}. Ensure createPaymentIntent is called first.`
+    );
+  } // 2. 상태 검증
 
   if (intentData.status !== "PENDING" && intentData.status !== "FAILURE") {
     throw new BadRequestError(
@@ -106,9 +119,17 @@ const executePayment = async (
   ); // 6. 결제 성공/실패 이벤트 발행
 
   if (isSuccessMock) {
-    eventBus.publish("PAYMENT_COMPLETED", { bookingId, token });
+    eventBus.publish("PAYMENT_COMPLETED", {
+      bookingId,
+      userId, // userId를 추가
+      token,
+    });
   } else {
-    eventBus.publish("PAYMENT_FAILED", { bookingId, token });
+    eventBus.publish("PAYMENT_FAILED", {
+      bookingId,
+      userId, // userId를 추가
+      token,
+    });
   } // 7. 이벤트 기록
 
   recordEvent(

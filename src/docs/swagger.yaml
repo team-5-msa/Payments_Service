@@ -1,0 +1,161 @@
+openapi: 3.0.0
+info:
+  title: Payment Service API
+  description: API documentation for the Payment Microservice
+  version: 1.0.0
+servers:
+  - url: http://localhost:3002
+    description: Local Development Server
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []
+paths:
+  /payment/intent:
+    post:
+      summary: Create a payment intent
+      description: Create a payment intent for a booking. Called by Booking Service.
+      tags:
+        - Payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bookingId
+                - totalAmount
+                - paymentMethod
+                - performanceId
+              properties:
+                bookingId:
+                  type: string
+                  example: "booking-12345"
+                totalAmount:
+                  type: number
+                  example: 50000
+                paymentMethod:
+                  type: string
+                  example: "CARD"
+                performanceId:
+                  type: string
+                  example: "perf-001"
+      responses:
+        "201":
+          description: Payment intent created successfully
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+  /payment/execute:
+    post:
+      summary: Execute a payment
+      description: Process a payment for a booking.
+      tags:
+        - Payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bookingId
+                - paymentMethodToken
+                - cardNumber
+                - cvv
+              properties:
+                bookingId:
+                  type: string
+                  description: The ID of the booking
+                  example: "booking-12345"
+                paymentMethodToken:
+                  type: string
+                  description: Token representing the payment method
+                  example: "tok_visa"
+                cardNumber:
+                  type: string
+                  description: Credit card number
+                  example: "1234567812345678"
+                cvv:
+                  type: string
+                  description: Card verification value
+                  example: "123"
+      responses:
+        "200":
+          description: Payment processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Payment simulation finished with status: SUCCESS"
+                  finalStatus:
+                    type: string
+                    example: "SUCCESS"
+                  bookingId:
+                    type: string
+                    example: "booking-12345"
+        "400":
+          description: Bad Request (Missing parameters or invalid state)
+        "401":
+          description: Unauthorized
+        "404":
+          description: Payment Intent not found
+        "500":
+          description: Internal Server Error
+  /payment/refund:
+    post:
+      summary: Refund a payment
+      description: Refund a payment for a booking.
+      tags:
+        - Payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bookingId
+              properties:
+                bookingId:
+                  type: string
+                  example: "booking-12345"
+      responses:
+        "200":
+          description: Refund processed successfully
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+  /payment/cancel:
+    post:
+      summary: Cancel a payment intent
+      description: Cancel a payment intent for a booking.
+      tags:
+        - Payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bookingId
+              properties:
+                bookingId:
+                  type: string
+                  example: "booking-12345"
+      responses:
+        "200":
+          description: Payment intent cancelled successfully
+        "400":
+          description: Bad Request

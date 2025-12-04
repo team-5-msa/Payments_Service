@@ -12,8 +12,10 @@ const createIntent = async (
   performanceId
 ) => {
   const intentRef = db.collection("paymentIntents").doc(bookingId);
-  await intentRef.set({
-    paymentIntentId: intentRef.id,
+
+  // Firestore에 저장할 데이터 객체
+  const dataToSave = {
+    paymentIntentId: bookingId, // bookingId를 paymentIntentId로 사용
     bookingId,
     userId,
     amount,
@@ -22,7 +24,15 @@ const createIntent = async (
     performanceId,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  };
+
+  // set()을 사용하여 문서를 생성하거나 덮어씁니다.
+  await intentRef.set(dataToSave);
+
+  // console.log(
+  //   `[PaymentRepository] Intent ${bookingId} created with data:`,
+  //   dataToSave
+  // );
 };
 
 /**
@@ -34,7 +44,7 @@ const updateIntentStatusNonTx = async (bookingId, status) => {
     status: status,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
-  console.log(`[PaymentRepository] Intent ${bookingId} updated to ${status}`);
+  // console.log(`[PaymentRepository] Intent ${bookingId} updated to ${status}`);
 };
 
 /**

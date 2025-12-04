@@ -10,7 +10,7 @@ const authMiddleware = (req, res, next) => {
     });
   }
 
-  console.log("Authorization Header:", authHeader);
+  // console.log("Authorization Header:", authHeader);
 
   const token = authHeader.split(" ")[1];
 
@@ -33,7 +33,7 @@ const authMiddleware = (req, res, next) => {
       });
     }
 
-    console.log("Decoded User:", decoded);
+    // console.log("Decoded User:", decoded);
 
     // 컨트롤러에서 헤더를 다시 찾지 않도록, 토큰 원본도 함께 전달
     // user_id를 id로 매핑하여 컨트롤러에서 일관되게 사용할 수 있도록 함
