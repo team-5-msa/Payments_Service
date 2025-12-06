@@ -5,6 +5,9 @@ primary_region = "nrt" # Primary deployment region (Tokyo - near your users)
 
 [build]
 
+[env]
+  NODE_ENV = "production"
+
 [http_service]
   internal_port = 3000       # Your app listens on port 3000
   force_https = true         # Redirect HTTP to HTTPS (recommended for production)
@@ -15,6 +18,7 @@ primary_region = "nrt" # Primary deployment region (Tokyo - near your users)
   processes = ["app"]
 
 [[vm]]
+  size = 'shared-cpu-1x'
   memory = "256mb"           # Free tier limit (256MB memory per machine)
   cpu_kind = "shared"        # Shared CPU (Free tier eligible)
   cpus = 1                   # 1 CPU (Default and Free tier eligible)

@@ -1,7 +1,12 @@
 const axios = require("axios");
 
+const BASE_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://your-deployment-server.com" // Replace with actual deployment server URL
+    : "http://localhost:4000"; // Localhost URL
+
 const bookingAxiosInstance = axios.create({
-  baseURL: "http://localhost:4000", // Localhost 서비스의 기본 URL
+  baseURL: BASE_URL,
   timeout: 10000, // 요청 제한 시간 (밀리초)
   headers: {
     "Content-Type": "application/json", // 요청 데이터의 타입을 JSON으로 설정
