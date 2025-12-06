@@ -1,16 +1,15 @@
-const paymentRepository = require("./payment.repository");
-const { recordEvent } = require("./payment.helper");
+const paymentRepository = require("@modules/payment/payment.repository");
 const {
   getMockPaymentResult,
   processMockRefund,
-} = require("../mocks/PGprocess.mock");
-const logger = require("../../utils/logger");
+} = require("@modules/mocks/PGprocess.mock");
+const logger = require("@utils/logger");
 const {
   NotFoundError,
   BadRequestError,
   UnauthorizedError,
-} = require("../../utils/errorHandler"); // 에러 처리 추가
-const eventBus = require("../../utils/eventBus"); // 이벤트 버스 추가
+} = require("@utils/errorHandler");
+const eventBus = require("@utils/eventBus");
 
 /**
  * 결제 의향 생성
@@ -19,6 +18,7 @@ const createPaymentIntent = async (
   bookingId,
   userId,
   amount,
+  reservationId,
   paymentMethod,
   performanceId
 ) => {
@@ -28,7 +28,8 @@ const createPaymentIntent = async (
     !amount ||
     amount <= 0 ||
     !paymentMethod ||
-    !performanceId
+    !performanceId ||
+    !reservationId
   ) {
     throw new BadRequestError(
       "Missing or invalid parameters for payment intent creation."
@@ -49,6 +50,7 @@ const createPaymentIntent = async (
     bookingId,
     userId,
     amount,
+    reservationId,
     paymentMethod,
     performanceId
   );
@@ -121,19 +123,20 @@ const executePayment = async (
   if (isSuccessMock) {
     eventBus.publish("PAYMENT_COMPLETED", {
       bookingId,
-      userId, // userId를 추가
+      userId,
       token,
     });
   } else {
     eventBus.publish("PAYMENT_FAILED", {
       bookingId,
-      userId, // userId를 추가
+      userId,
       token,
     });
   } // 7. 이벤트 기록
 
-  recordEvent(
+  await paymentRepository.recordEvent(
     bookingId,
+    userId,
     isSuccessMock ? "PAYMENT_SUCCESS" : "PAYMENT_FAILURE",
     pgData,
     finalStatus
@@ -171,8 +174,9 @@ const refundPayment = async (bookingId, userId, token) => {
 
   const pgRefundResult = await processMockRefund(bookingId);
   if (!pgRefundResult.success) {
-    await recordEvent(
+    await paymentRepository.recordEvent(
       bookingId,
+      userId,
       "REFUND_FAILURE",
       { msg: "PG Fail" },
       "FAILED"
@@ -184,11 +188,12 @@ const refundPayment = async (bookingId, userId, token) => {
   eventBus.publish("REFUND_COMPLETED", { bookingId, token });
 
   // 5. 이벤트 기록
-  await recordEvent(
+  await paymentRepository.recordEvent(
     bookingId,
+    userId,
     "REFUND_SUCCESS",
     { refundId: pgRefundResult.refundId, amount: intentData.amount },
-    "SUCCESS"
+    "REFUNDED"
   ); // 6. 결과 반환 (Booking 업데이트는 호출자가 수행함)
 
   return {
@@ -218,7 +223,30 @@ const updateIntentStatusForCancellation = async (bookingId) => {
   }
 
   await paymentRepository.updateIntentStatusNonTx(bookingId, "CANCELLED");
-  recordEvent(bookingId, "INTENT_CANCELLED", {}, "CANCELLED");
+  await paymentRepository.recordEvent(
+    bookingId,
+    userId,
+    "INTENT_CANCELLED",
+    {},
+    "CANCELLED"
+  );
+};
+
+const getEventStatus = async (bookingId) => {
+  if (!bookingId) {
+    throw new BadRequestError("bookingId is required to fetch payment status.");
+  }
+
+  const eventStatus = await paymentRepository.getEventStatus(bookingId);
+
+  if (!eventStatus) {
+    throw new NotFoundError(
+      `Payment intent not found for bookingId: ${bookingId}`
+    );
+  }
+
+  // Return only the finalStatus field from the eventStatus
+  return eventStatus;
 };
 
 module.exports = {
@@ -226,4 +254,5 @@ module.exports = {
   executePayment,
   refundPayment,
   updateIntentStatusForCancellation,
+  getEventStatus,
 };

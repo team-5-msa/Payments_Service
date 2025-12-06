@@ -3,19 +3,24 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "start": "node bin/www",
+    "dev": "nodemon bin/www"
   },
   "dependencies": {
     "axios": "^1.13.2",
     "cookie-parser": "~1.4.4",
+    "cors": "^2.8.5",
     "debug": "~2.6.9",
     "dotenv": "^17.2.3",
     "express": "~4.16.1",
+    "express-async-errors": "^3.1.1",
+    "express-rate-limit": "^8.2.1",
     "firebase": "^12.6.0",
     "firebase-admin": "^13.6.0",
+    "helmet": "^8.1.0",
     "joi": "^18.0.2",
     "jsonwebtoken": "^9.0.2",
+    "module-alias": "^2.2.3",
     "moment": "^2.30.1",
     "moment-timezone": "^0.6.0",
     "morgan": "~1.9.1",
@@ -27,5 +32,16 @@
   "devDependencies": {
     "@flydotio/dockerfile": "^0.7.10",
     "nodemon": "^3.1.11"
+  },
+  "_moduleAliases": {
+    "@root": "src",
+    "@modules": "src/modules",
+    "@config": "src/config",
+    "@utils": "src/utils",
+    "@routes": "src/routes",
+    "@docs": "src/docs",
+    "@events": "src/events",
+    "@middlewares": "src/middlewares",
+    "@subscribers": "src/subscribers"
   }
 }

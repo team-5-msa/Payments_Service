@@ -1,7 +1,7 @@
 const EventEmitter = require("events");
 const { v4: uuidv4 } = require("uuid");
 const logger = require("./logger");
-const eventSchemas = require("../events/schemas");
+const eventSchemas = require("@events/schemas");
 
 class EventBus extends EventEmitter {
   constructor() {

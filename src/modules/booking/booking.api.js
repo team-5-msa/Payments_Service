@@ -15,7 +15,7 @@ const notifyBookingStatus = async (bookingId, status, token) => {
       { bookingId, status }, // 바디 데이터
       {
         headers: {
-          Authorization: authHeader, // Use corrected Authorization header
+          Authorization: authHeader,
         },
       }
     );
