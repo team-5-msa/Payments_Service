@@ -9,7 +9,7 @@ primary_region = "nrt" # Primary deployment region (Tokyo - near your users)
   NODE_ENV = "production"
 
 [http_service]
-  internal_port = 3000       # Your app listens on port 3000
+  internal_port = 3002       # Your app listens on port 3002
   force_https = true         # Redirect HTTP to HTTPS (recommended for production)
   auto_stop_machines = "stop" # Machines will stop automatically when idle
   auto_start_machines = true  # Machines will start automatically when traffic arrives

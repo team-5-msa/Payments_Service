@@ -3,7 +3,7 @@ const axios = require("axios");
 const BASE_URL =
   process.env.NODE_ENV === "production"
     ? "https://your-deployment-server.com" // Replace with actual deployment server URL
-    : "http://localhost:4000"; // Localhost URL
+    : "http://localhost:3001"; // Localhost URL
 
 const bookingAxiosInstance = axios.create({
   baseURL: BASE_URL,
