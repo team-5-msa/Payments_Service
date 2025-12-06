@@ -1,4 +1,4 @@
-const bookingAxiosInstance = require("../../utils/bookingAxios");
+const bookingAxiosInstance = require("@utils/bookingAxios");
 
 /**
  * Booking 서비스에 결제 결과 알림 (Webhook)
