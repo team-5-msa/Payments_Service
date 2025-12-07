@@ -2,7 +2,7 @@ const axios = require("axios");
 
 const BASE_URL =
   process.env.NODE_ENV === "production"
-    ? "https://your-deployment-server.com" // Replace with actual deployment server URL
+    ? "https://msa-booking.fly.dev" // 배포서버 URL
     : "http://localhost:3001"; // Localhost URL
 
 const bookingAxiosInstance = axios.create({

@@ -114,6 +114,7 @@ const executePayment = async (
 
   await paymentRepository.completePaymentTransaction(
     bookingId,
+    userId,
     finalStatus,
     pgData,
     intentData.amount,
@@ -136,7 +137,6 @@ const executePayment = async (
 
   await paymentRepository.recordEvent(
     bookingId,
-    userId,
     isSuccessMock ? "PAYMENT_SUCCESS" : "PAYMENT_FAILURE",
     pgData,
     finalStatus
@@ -176,7 +176,6 @@ const refundPayment = async (bookingId, userId, token) => {
   if (!pgRefundResult.success) {
     await paymentRepository.recordEvent(
       bookingId,
-      userId,
       "REFUND_FAILURE",
       { msg: "PG Fail" },
       "FAILED"
@@ -190,7 +189,6 @@ const refundPayment = async (bookingId, userId, token) => {
   // 5. 이벤트 기록
   await paymentRepository.recordEvent(
     bookingId,
-    userId,
     "REFUND_SUCCESS",
     { refundId: pgRefundResult.refundId, amount: intentData.amount },
     "REFUNDED"
@@ -225,7 +223,6 @@ const updateIntentStatusForCancellation = async (bookingId) => {
   await paymentRepository.updateIntentStatusNonTx(bookingId, "CANCELLED");
   await paymentRepository.recordEvent(
     bookingId,
-    userId,
     "INTENT_CANCELLED",
     {},
     "CANCELLED"

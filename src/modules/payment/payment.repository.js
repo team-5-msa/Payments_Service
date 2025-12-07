@@ -15,12 +15,11 @@ const createIntent = async (
   paymentMethod,
   performanceId
 ) => {
-  const customId = generateCustomId(bookingId, userId); // Generate custom ID
-  const intentRef = db.collection("paymentIntents").doc(customId);
+  const intentRef = db.collection("paymentIntents").doc(bookingId);
 
   // Firestore에 저장할 데이터 객체
   const dataToSave = {
-    paymentIntentId: customId, // Use custom ID
+    paymentIntentId: bookingId,
     bookingId,
     userId,
     amount,
@@ -85,6 +84,7 @@ const getEventStatus = async (bookingId) => {
  */
 const completePaymentTransaction = async (
   bookingId,
+  userId, // userId 추가
   finalStatus,
   pgData,
   amount,
@@ -102,7 +102,8 @@ const completePaymentTransaction = async (
 
     // 성공 시 원장 기록
     if (isSuccessMock) {
-      createLedgerEntries(t, bookingId, amount);
+      // 올바른 인수로 createLedgerEntries 호출
+      createLedgerEntries(t, bookingId, userId, amount);
     }
   });
 };

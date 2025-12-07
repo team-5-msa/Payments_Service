@@ -6,7 +6,7 @@ primary_region = "nrt" # Primary deployment region (Tokyo - near your users)
 [build]
 
 [env]
-  NODE_ENV = "production"
+NODE_ENV = "production"
 
 [http_service]
   internal_port = 3002       # Your app listens on port 3002
