@@ -6,10 +6,10 @@ const BASE_URL =
     : "http://localhost:3001"; // Localhost URL
 
 const bookingAxiosInstance = axios.create({
-  baseURL: BASE_URL,
+  baseURL: "https://msa-booking.fly.dev", // local과 자동으로 맞바꿀수 있는 기술력이 생기면 수정하기 꼭
   timeout: 10000, // 요청 제한 시간 (밀리초)
   headers: {
-    "Content-Type": "application/json", // 요청 데이터의 타입을 JSON으로 설정
+    "Content-Type": "application/json", // 요청 데이터의 타입 JSON
   },
 });
 
